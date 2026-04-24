@@ -10,8 +10,6 @@ The pipeline supports:
 - HealthBench rubric scoring with either a single grader or a panel-majority grader.
 - Exporting a merged response matrix for blinded clinician review.
 
-This public repository does **not** automate browser access or answer extraction for OpenEvidence, UpToDate, or Google Search AI Overview. If those systems are included in analysis, they must enter through pre-collected outputs referenced from the model registry via `generation_mode: import_from_source`.
-
 ## Setup
 
 ```bash
@@ -124,9 +122,6 @@ python evaluation_pipeline.py generate-benchmark-csv \
   --checkpoint-every 25
 ```
 
-The RCQ queries and model outputs are not public release artifacts. Keep them under ignored local paths unless they have gone through the required release review. The merged manuscript matrix contains six models: GPT-5.2, Gemini 3.1 Pro Preview, Claude Opus 4.6, OpenEvidence, UpToDate Expert AI, and Google Search AI Overview.
-
-If the merged matrix includes OpenEvidence, UpToDate, or Google Search AI Overview columns, point those model IDs at pre-collected output files in the model registry rather than attempting live retrieval.
 
 ## Useful Defaults
 
