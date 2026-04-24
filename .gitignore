@@ -1,0 +1,69 @@
+# macOS and editor cruft
+.DS_Store
+._*
+*~
+*.swp
+*.swo
+.Rhistory
+
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*auth*.json
+*storage_state*.json
+
+# Python local state
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Node / Next.js local state
+node_modules/
+.next/
+out/
+dist/
+coverage/
+.vercel/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local benchmark data, generated model outputs, and reviewer exports
+data/
+results/
+outputs/
+figures/
+clinical_tools_extract/data/
+clinical_tools_extract/legacy/
+clinical_eval_platform/data/
+clinical_eval_platform/public/benchmark.json
+clinical_eval_platform/query_responses.csv
+clinical_eval_platform/query_responses.xlsx
+clinical_eval_platform/~$*
+RCQ_Results.csv
+RWCQ.xlsx
+*.jsonl
+*_processed.jsonl
+*_scored.json
+raw.jsonl
+scored.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Nested Git repositories should not be committed into the public repo.
+**/.git/
