@@ -74,6 +74,14 @@ For RCQ-style review, provide a local `query_responses.csv` or `query_responses.
 
 These generated files are ignored because they may contain private clinical queries or model outputs.
 
+## License
+
+The source code in this repository is licensed under the Apache License 2.0.
+
+Unless otherwise noted, non-code materials such as figures, diagrams, and documentation are licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+
+Please cite the associated paper if you use this repository in academic work.
+
 ## Citation
 
 Citation details will be added after publication.
