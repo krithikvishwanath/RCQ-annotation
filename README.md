@@ -76,7 +76,7 @@ These generated files are ignored because they may contain private clinical quer
 
 ## License
 
-The source code in this repository is licensed under the Apache License 2.0.
+The source code in this repository is licensed under GNU AGPL v3.
 
 Unless otherwise noted, non-code materials such as figures, diagrams, and documentation are licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
 
