@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "Clinical LLM Benchmarks"
+type: software
+authors:
+  - family-names: Vishwanath
+    given-names: Krithik
+preferred-citation:
+  type: article
+  title: "General-purpose large language models outperform specialized clinical AI tools on medical benchmarks"
+  journal: "Nature Medicine"
+  year: 2026
+  doi: 10.1038/s41591-026-04431-5
+  url: https://doi.org/10.1038/s41591-026-04431-5
+  date-published: 2026-06-12
+  authors:
+    - family-names: Vishwanath
+      given-names: Krithik
+    - family-names: Alyakin
+      given-names: Anton
+    - family-names: Ghosh
+      given-names: Mrigayu
+    - family-names: Hage
+      given-names: Ali
+    - family-names: Neifert
+      given-names: Sean N.
+    - family-names: Orillac
+      given-names: Cordelia
+    - family-names: Mandelberg
+      given-names: Nataniel J.
+    - family-names: Khan
+      given-names: Hammad A.
+    - family-names: Lee
+      given-names: Jin Vivian
+    - family-names: Yao
+      given-names: Jie J.
+    - family-names: Small
+      given-names: William Robert
+    - family-names: Varma
+      given-names: Aakaash
+    - family-names: Hewitt
+      given-names: D. Brock
+    - family-names: Aphinyanaphongs
+      given-names: Yindalon
+    - family-names: Alber
+      given-names: Daniel Alexander
+    - family-names: Oermann
+      given-names: Eric Karl
