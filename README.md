@@ -1,8 +1,9 @@
 # Clinical LLM Benchmarks
 
-Code accompanying the manuscript:
+Code accompanying the paper:
 
-**General-Purpose Large Language Models Outperform Specialized Clinical AI Tools on Medical Benchmarks**
+**General-purpose large language models outperform specialized clinical AI tools on medical benchmarks**
+*Nature Medicine* (2026). https://doi.org/10.1038/s41591-026-04431-5
 
 ## Repository Layout
 
@@ -84,4 +85,17 @@ Please cite the associated paper if you use this repository in academic work.
 
 ## Citation
 
-Citation details will be added after publication.
+If you use this code, please cite:
+
+> Vishwanath, K., Alyakin, A., Ghosh, M., Hage, A., Neifert, S. N., Orillac, C., Mandelberg, N. J., Khan, H. A., Lee, J. V., Yao, J. J., Small, W. R., Varma, A., Hewitt, D. B., Aphinyanaphongs, Y., Alber, D. A. & Oermann, E. K. General-purpose large language models outperform specialized clinical AI tools on medical benchmarks. *Nature Medicine* (2026). https://doi.org/10.1038/s41591-026-04431-5
+
+```bibtex
+@article{vishwanath2026general,
+  title   = {General-purpose large language models outperform specialized clinical AI tools on medical benchmarks},
+  author  = {Vishwanath, Krithik and Alyakin, Anton and Ghosh, Mrigayu and Hage, Ali and Neifert, Sean N. and Orillac, Cordelia and Mandelberg, Nataniel J. and Khan, Hammad A. and Lee, Jin Vivian and Yao, Jie J. and Small, William Robert and Varma, Aakaash and Hewitt, D. Brock and Aphinyanaphongs, Yindalon and Alber, Daniel Alexander and Oermann, Eric Karl},
+  journal = {Nature Medicine},
+  year    = {2026},
+  doi     = {10.1038/s41591-026-04431-5},
+  url     = {https://doi.org/10.1038/s41591-026-04431-5}
+}
+```
