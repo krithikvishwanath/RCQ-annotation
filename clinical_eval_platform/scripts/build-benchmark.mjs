@@ -21,7 +21,7 @@ const candidates = [
 let sourcePath = candidates.find((candidate) => fs.existsSync(candidate));
 let isExample = false;
 if (!sourcePath) {
-  sourcePath = path.join(projectRoot, "examples", "queries.csv");
+  sourcePath = path.join(projectRoot, "examples", "demo_annotation_queries.csv");
   isExample = true;
 } else if (/sample/i.test(path.basename(sourcePath))) {
   isExample = true;

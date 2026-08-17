@@ -61,6 +61,19 @@ vercel blob put ../real_chats.csv --pathname datasets/real_chats.csv --access pr
 
 Before storing any PHI, obtain institutional privacy/security approval and ensure the hosting plan, BAA, data residency, access controls, and connected database are all approved for that data. A private object URL alone is not a HIPAA compliance program. Prefer an institution-managed source if the dataset has not been formally de-identified.
 
+## Vercel deployment
+
+Under **Project Settings → Build and Deployment**, set the Vercel **Root Directory** to `clinical_eval_platform` and enable **Include source files outside of the Root Directory in the Build Step**. The latter makes the repository-level `prompt.txt` available when the application generates the in-portal codebook. Use the **Next.js** framework preset and leave the install, build, and output commands at their detected defaults.
+
+Configure the following Production environment variables before data collection:
+
+- `DATABASE_URL` (or `POSTGRES_URL`)
+- `EVAL_ACCESS_CODE`
+- `ADMIN_PASSWORD` and optionally `ADMIN_USER`
+- `ANNOTATION_BLOB_URL` and the connected private store's `BLOB_READ_WRITE_TOKEN`
+
+After adding or changing environment variables, redeploy so they apply to the new deployment.
+
 ## Validation
 
 ```bash

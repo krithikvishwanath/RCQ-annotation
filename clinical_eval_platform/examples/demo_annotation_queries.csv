@@ -1,0 +1,5 @@
+id,specialty,question
+DEMO-001,Hospital Medicine,"68M with AF, CrCl 28 (Cr 2.1), weight 60 kg — he's written for apixaban 5 mg BID. What's the right dose?"
+DEMO-002,Family Medicine,"Please write discharge instructions in Spanish for a 4-year-old going home after viral gastroenteritis — include return precautions."
+DEMO-003,Dermatology,"Can Breztri cause urinary retention?"
+DEMO-004,Emergency Medicine,"Patient is in the ED now with BP 70/40 after starting an antibiotic. What should I do next?"
