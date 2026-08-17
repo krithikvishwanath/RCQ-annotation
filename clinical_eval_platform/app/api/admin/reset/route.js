@@ -34,6 +34,13 @@ export async function POST(request) {
           RETURNING 1
         ) SELECT COUNT(*)::int AS count FROM released
       `;
+      const states = await transaction`
+        WITH removed AS (
+          DELETE FROM rater_dataset_state
+          WHERE dataset_id = ${datasetId}
+          RETURNING 1
+        ) SELECT COUNT(*)::int AS count FROM removed
+      `;
       await transaction`
         INSERT INTO benchmark_state (benchmark_id, run_version, reset_at, updated_at)
         VALUES (${datasetId}, 2, now(), now())
@@ -45,6 +52,7 @@ export async function POST(request) {
       return {
         deletedAnnotations: deleted[0]?.count || 0,
         clearedAssignments: cleared[0]?.count || 0,
+        clearedRaterStates: states[0]?.count || 0,
       };
     });
     return json(200, { ok: true, datasetId, ...result });

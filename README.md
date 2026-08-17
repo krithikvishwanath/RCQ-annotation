@@ -10,7 +10,8 @@ The application lives in `clinical_eval_platform/` and provides:
 - inline field rules and a searchable codebook;
 - automatic enforcement of all hard consistency rules;
 - debounced server autosave plus browser recovery for interrupted sessions;
-- admin coverage monitoring and analysis-ready CSV export;
+- live admin coverage and field-level inter-rater reliability monitoring;
+- audited assignment release/reassignment controls and analysis-ready CSV export;
 - a private-runtime dataset path for Vercel.
 
 ## Local development
@@ -91,7 +92,11 @@ npm test
 npm run build
 ```
 
-The admin portal is at `/admin`. Its export includes query text, optional source specialty metadata, all 24 labels in codebook order, completion state, notes, and audit timestamps.
+The admin portal is at `/admin`. It reports exact agreement and unweighted Cohen's kappa for every field once both reviews of a query are complete under the active codebook. The metrics refresh automatically every 20 seconds; derived labels are shown but excluded from the aggregate statistics.
+
+Administrators can release an assignment back to the shared pool or move it to another registered reviewer. Saved annotations are never transferred between reviewer identities: changing an assignment with partial or completed work requires confirmation and permanently deletes that source annotation. Every move or release is recorded in `admin_assignment_events`. Open reviewer workspaces synchronize assignment changes within 30 seconds, while the server rejects saves to removed assignments immediately. Removing all of a reviewer's assignments does not trigger another automatic initial batch; the reviewer must explicitly request the next increment of 10.
+
+The admin export includes query text, optional source specialty metadata, all 24 labels in codebook order, completion state, notes, and audit timestamps.
 
 ## License
 

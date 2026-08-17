@@ -91,10 +91,18 @@ export async function GET(request) {
         AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
       ORDER BY assigned_at ASC, question_id ASC
     `;
+    const state = await sql`
+      SELECT 1 AS claimed
+      FROM rater_dataset_state
+      WHERE rater_id = ${sessionId}::uuid
+        AND dataset_id = ${datasetId}
+      LIMIT 1
+    `;
 
     return json(200, {
       runVersion: await getRunVersion(sql, datasetId),
       questionIds: assigned.map((row) => row.question_id),
+      hasClaimedInitial: state.length > 0 || assigned.length > 0,
       ...(await getAvailability(sql, datasetId, sessionId)),
     });
   } catch (error) {
@@ -137,7 +145,13 @@ export async function POST(request) {
       const stateRows = await transaction`
         SELECT
           COUNT(*)::int AS assigned,
-          COUNT(*) FILTER (WHERE COALESCE(a.is_complete, false) = false)::int AS incomplete
+          COUNT(*) FILTER (WHERE COALESCE(a.is_complete, false) = false)::int AS incomplete,
+          EXISTS (
+            SELECT 1
+            FROM rater_dataset_state state
+            WHERE state.rater_id = ${sessionId}::uuid
+              AND state.dataset_id = ${datasetId}
+          ) AS has_claimed_initial
         FROM question_review_slots s
         LEFT JOIN annotations a
           ON a.dataset_id = s.benchmark_id
@@ -149,7 +163,10 @@ export async function POST(request) {
       `;
       const existingCount = stateRows[0]?.assigned || 0;
       const incompleteCount = stateRows[0]?.incomplete || 0;
-      const claimCount = existingCount ? ADDITIONAL_ASSIGNMENT_COUNT : INITIAL_ASSIGNMENT_COUNT;
+      const hasClaimedInitial = Boolean(stateRows[0]?.has_claimed_initial) || existingCount > 0;
+      const claimCount = hasClaimedInitial
+        ? ADDITIONAL_ASSIGNMENT_COUNT
+        : INITIAL_ASSIGNMENT_COUNT;
 
       if (requestedCount != null && requestedCount !== claimCount) {
         return {
@@ -224,6 +241,16 @@ export async function POST(request) {
         RETURNING slots.question_id
       `;
 
+      if (claimed.length) {
+        await transaction`
+          INSERT INTO rater_dataset_state (
+            rater_id, dataset_id, initial_batch_claimed_at, updated_at
+          )
+          VALUES (${sessionId}::uuid, ${datasetId}, now(), now())
+          ON CONFLICT (rater_id, dataset_id) DO UPDATE SET updated_at = now()
+        `;
+      }
+
       const assigned = await transaction`
         SELECT question_id
         FROM question_review_slots
@@ -237,6 +264,7 @@ export async function POST(request) {
         runVersion: await getRunVersion(transaction, datasetId),
         claimedQuestionIds: claimed.map((row) => row.question_id),
         questionIds: assigned.map((row) => row.question_id),
+        hasClaimedInitial: hasClaimedInitial || claimed.length > 0,
         ...(await getAvailability(transaction, datasetId, sessionId)),
       };
     });

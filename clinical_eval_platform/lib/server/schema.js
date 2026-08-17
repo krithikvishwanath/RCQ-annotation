@@ -78,6 +78,37 @@ async function initializeSchema() {
   `;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS rater_dataset_state (
+      rater_id uuid NOT NULL REFERENCES raters(id) ON DELETE CASCADE,
+      dataset_id text NOT NULL,
+      initial_batch_claimed_at timestamptz NOT NULL DEFAULT now(),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (rater_id, dataset_id)
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS admin_assignment_events (
+      id bigserial PRIMARY KEY,
+      dataset_id text NOT NULL,
+      question_id text NOT NULL,
+      slot smallint NOT NULL,
+      action text NOT NULL CHECK (action IN ('release', 'move')),
+      source_rater_id uuid REFERENCES raters(id) ON DELETE SET NULL,
+      target_rater_id uuid REFERENCES raters(id) ON DELETE SET NULL,
+      deleted_annotation boolean NOT NULL DEFAULT false,
+      actor text NOT NULL DEFAULT 'admin',
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS admin_assignment_events_dataset_idx
+    ON admin_assignment_events (dataset_id, created_at DESC)
+  `;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS benchmark_state (
       benchmark_id text PRIMARY KEY,
       run_version int NOT NULL DEFAULT 1,
@@ -101,6 +132,28 @@ async function initializeSchema() {
     FROM unnest(${sql.array(questionIds)}::text[]) AS q(question_id)
     CROSS JOIN generate_series(0, ${REQUIRED_REVIEWS_PER_QUERY - 1}) AS slots(slot)
     ON CONFLICT (benchmark_id, question_id, slot) DO NOTHING
+  `;
+
+  await sql`
+    INSERT INTO rater_dataset_state (rater_id, dataset_id, initial_batch_claimed_at)
+    SELECT
+      rater_id,
+      benchmark_id,
+      MIN(COALESCE(assigned_at, created_at))
+    FROM question_review_slots
+    WHERE benchmark_id = ${datasetId}
+      AND rater_id IS NOT NULL
+    GROUP BY rater_id, benchmark_id
+    ON CONFLICT (rater_id, dataset_id) DO NOTHING
+  `;
+
+  await sql`
+    INSERT INTO rater_dataset_state (rater_id, dataset_id, initial_batch_claimed_at)
+    SELECT rater_id, dataset_id, MIN(created_at)
+    FROM annotations
+    WHERE dataset_id = ${datasetId}
+    GROUP BY rater_id, dataset_id
+    ON CONFLICT (rater_id, dataset_id) DO NOTHING
   `;
 
   await sql`

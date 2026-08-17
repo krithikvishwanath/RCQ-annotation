@@ -23,7 +23,7 @@ export default function ResetClient({ datasetId }) {
       if (!response.ok) throw new Error(data?.error || "Reset failed.");
       setStatus("done");
       setConfirmation("");
-      setMessage(`Deleted ${data.deletedAnnotations} annotations and released ${data.clearedAssignments} assignments.`);
+      setMessage(`Deleted ${data.deletedAnnotations} annotations, released ${data.clearedAssignments} assignments, and reset ${data.clearedRaterStates || 0} reviewer batch states.`);
       router.refresh();
     } catch (error) {
       setStatus("error");

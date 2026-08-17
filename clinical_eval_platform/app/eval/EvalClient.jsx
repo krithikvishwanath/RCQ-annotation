@@ -18,6 +18,7 @@ const STORAGE = {
   accessCode: "rcqTaxonomy.accessCode",
   mode: "rcqTaxonomy.mode",
 };
+const ASSIGNMENT_REFRESH_INTERVAL_MS = 30_000;
 
 function storageGet(key) {
   try {
@@ -349,6 +350,7 @@ export default function EvalClient() {
   const [loadError, setLoadError] = useState("");
   const [assignmentError, setAssignmentError] = useState("");
   const [remainingQueries, setRemainingQueries] = useState(0);
+  const [hasClaimedInitial, setHasClaimedInitial] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [copyStatus, setCopyStatus] = useState("");
@@ -412,6 +414,7 @@ export default function EvalClient() {
     if (session.mode === "local") {
       setQuestionIds(dataset.questions.map((question) => String(question.id)));
       setRunVersion(1);
+      setHasClaimedInitial(true);
       return;
     }
 
@@ -423,9 +426,14 @@ export default function EvalClient() {
       if (!response.ok) throw new Error(data?.error || "Assignments could not be loaded.");
       setRunVersion(data.runVersion ?? 1);
       setRemainingQueries(data.remainingQueries ?? 0);
+      setHasClaimedInitial(Boolean(data.hasClaimedInitial));
 
       if (Array.isArray(data.questionIds) && data.questionIds.length) {
         setQuestionIds(data.questionIds.map(String));
+        return;
+      }
+      if (data.hasClaimedInitial) {
+        setQuestionIds([]);
         return;
       }
 
@@ -445,6 +453,7 @@ export default function EvalClient() {
       setQuestionIds((claimData.questionIds || []).map(String));
       setRunVersion(claimData.runVersion ?? 1);
       setRemainingQueries(claimData.remainingQueries ?? 0);
+      setHasClaimedInitial(Boolean(claimData.hasClaimedInitial));
     } catch (error) {
       setAssignmentError(error?.message || "Assignments could not be loaded.");
       setQuestionIds([]);
@@ -455,6 +464,27 @@ export default function EvalClient() {
     loadAssignments();
   }, [loadAssignments]);
 
+  useEffect(() => {
+    if (!session || !dataset || session.mode === "local") return undefined;
+    const timer = window.setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const query = new URLSearchParams({ sessionId: session.sessionId, datasetId: dataset.datasetId });
+        const response = await fetch(`/api/assignments?${query}`, { cache: "no-store", headers: authHeaders(session) });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401) return handleUnauthorized();
+        if (!response.ok) return;
+        setQuestionIds((data.questionIds || []).map(String));
+        setRunVersion(data.runVersion ?? 1);
+        setRemainingQueries(data.remainingQueries ?? 0);
+        setHasClaimedInitial(Boolean(data.hasClaimedInitial));
+      } catch {
+        // Keep the current workspace stable during a transient refresh failure.
+      }
+    }, ASSIGNMENT_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [dataset, handleUnauthorized, session]);
+
   const persistLocal = useCallback(
     (next) => {
       if (!session || !dataset || runVersion == null) return;
@@ -462,6 +492,23 @@ export default function EvalClient() {
     },
     [dataset, runVersion, session],
   );
+
+  useEffect(() => {
+    if (!Array.isArray(questionIds)) return;
+    const assigned = new Set(questionIds.map(String));
+    for (const [questionId, timer] of Object.entries(saveTimersRef.current)) {
+      if (assigned.has(questionId)) continue;
+      clearTimeout(timer);
+      delete saveTimersRef.current[questionId];
+    }
+    setAnnotations((previous) => {
+      const next = Object.fromEntries(
+        Object.entries(previous).filter(([questionId]) => assigned.has(String(questionId))),
+      );
+      if (Object.keys(next).length !== Object.keys(previous).length) persistLocal(next);
+      return next;
+    });
+  }, [persistLocal, questionIds]);
 
   const saveOne = useCallback(
     async (questionId, snapshot) => {
@@ -586,6 +633,12 @@ export default function EvalClient() {
   }, [dataset, questionIds, session?.sessionId]);
 
   useEffect(() => {
+    if (questions.length && questionIndex >= questions.length) {
+      setQuestionIndex(questions.length - 1);
+    }
+  }, [questionIndex, questions.length]);
+
+  useEffect(() => {
     if (initializedNavigationRef.current || !questions.length) return;
     const firstIncomplete = questions.findIndex(
       (question) => !recordProgress(annotations[String(question.id)]).isComplete,
@@ -692,7 +745,7 @@ export default function EvalClient() {
 
   const claimMore = useCallback(async () => {
     if (!session || !dataset || session.mode === "local") return;
-    const requestCount = questions.length
+    const requestCount = hasClaimedInitial
       ? ADDITIONAL_ASSIGNMENT_COUNT
       : INITIAL_ASSIGNMENT_COUNT;
     setIsClaiming(true);
@@ -722,13 +775,14 @@ export default function EvalClient() {
         mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       }
       setRemainingQueries(data.remainingQueries ?? 0);
+      setHasClaimedInitial(Boolean(data.hasClaimedInitial));
       initializedNavigationRef.current = true;
     } catch (error) {
       setAssignmentError(error?.message || "More queries could not be assigned.");
     } finally {
       setIsClaiming(false);
     }
-  }, [dataset, handleUnauthorized, questions.length, session]);
+  }, [dataset, handleUnauthorized, hasClaimedInitial, session]);
 
   async function copyQuery() {
     if (!currentQuestion) return;
@@ -756,7 +810,7 @@ export default function EvalClient() {
           <p className="eyebrow">Assignments</p>
           <h1>No queries are assigned</h1>
           <p>{assignmentError || (remainingQueries ? "Queries are available to claim." : "This dataset already has the required review coverage.")}</p>
-          {remainingQueries ? <button className="button button--primary" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : `Claim initial ${INITIAL_ASSIGNMENT_COUNT} queries`}</button> : null}
+          {remainingQueries ? <button className="button button--primary" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : hasClaimedInitial ? `Assign ${ADDITIONAL_ASSIGNMENT_COUNT} more queries` : `Claim initial ${INITIAL_ASSIGNMENT_COUNT} queries`}</button> : null}
           <button className="button button--quiet" onClick={() => router.push("/")}>Return home</button>
         </div>
       </main>

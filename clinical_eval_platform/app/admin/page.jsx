@@ -2,7 +2,10 @@ import Link from "next/link";
 import { getDataset } from "../../lib/server/dataset";
 import { ensureSchema } from "../../lib/server/schema";
 import { getSql } from "../../lib/server/db";
+import { loadReliabilityStats } from "../../lib/server/admin-metrics";
 import { REQUIRED_REVIEWS_PER_QUERY } from "../../lib/study-config";
+import AssignmentManager from "./AssignmentManager";
+import ReliabilityClient from "./ReliabilityClient";
 import ResetClient from "./ResetClient";
 
 export const runtime = "nodejs";
@@ -13,7 +16,9 @@ export default async function AdminPage() {
   let dataset;
   let summary = { total_slots: 0, assigned_slots: 0, started: 0, complete: 0, annotators: 0 };
   let raters = [];
+  let allRaters = [];
   let coverage = [];
+  let reliability = { pairedQueries: 0, comparableQueries: 0, excludedForCodebookVersion: 0, overallAgreement: null, meanKappa: null, fields: [] };
   let error = "";
 
   try {
@@ -81,6 +86,14 @@ export default async function AdminPage() {
       GROUP BY completed_reviews
       ORDER BY completed_reviews
     `;
+
+    allRaters = await sql`
+      SELECT id::text AS rater_id, name
+      FROM raters
+      ORDER BY lower(name), created_at
+    `;
+
+    reliability = await loadReliabilityStats(sql, dataset.datasetId);
   } catch (caught) {
     error = caught?.message || "Administrative data could not be loaded.";
   }
@@ -102,7 +115,7 @@ export default async function AdminPage() {
 
       <div className="admin-content">
         <div className="admin-title">
-          <div><p className="eyebrow">Operations</p><h1>Annotation study overview</h1><p>Monitor coverage, annotator progress, and export-ready records.</p></div>
+          <div><p className="eyebrow">Operations</p><h1>Annotation study overview</h1><p>Monitor coverage, live agreement, reviewer progress, and assignment operations.</p></div>
           {dataset ? <div className="dataset-chip"><span>{dataset.isExample ? "Example data" : "Active dataset"}</span><strong>{dataset.datasetId}</strong><small>{totalQueries} queries · {dataset.skippedEmptyRows || 0} empty rows skipped · codebook {dataset.codebookVersion}</small></div> : null}
         </div>
 
@@ -129,7 +142,7 @@ export default async function AdminPage() {
                         <tr key={rater.rater_id}>
                           <td><strong>{rater.name}</strong><small>{rater.rater_id.slice(0, 8)}</small></td>
                           <td>{rater.assigned}</td><td>{rater.started}</td><td><span className="table-complete">{rater.complete}</span></td>
-                          <td>{rater.last_activity ? new Date(rater.last_activity).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "Not started"}</td>
+                          <td>{rater.last_activity ? new Date(rater.last_activity).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" }) : "Not started"}</td>
                         </tr>
                       ))}
                       {!raters.length ? <tr><td colSpan="5" className="table-empty">No annotators have been assigned yet.</td></tr> : null}
@@ -150,6 +163,10 @@ export default async function AdminPage() {
                 <p className="admin-card__note">Each query has {REQUIRED_REVIEWS_PER_QUERY} independent review slots. Export includes partial rows but marks completion explicitly.</p>
               </section>
             </div>
+
+            <ReliabilityClient datasetId={dataset.datasetId} initialReliability={reliability} />
+
+            <AssignmentManager datasetId={dataset.datasetId} raters={allRaters} />
 
             <section className="admin-card danger-card">
               <div className="admin-card__heading"><div><p className="eyebrow">Danger zone</p><h2>Reset active dataset</h2></div></div>
