@@ -1,4 +1,5 @@
 import { getDataset } from "../../../lib/server/dataset";
+import { toRaterDataset } from "../../../lib/rater-dataset";
 import { ensureSchema } from "../../../lib/server/schema";
 import { getSql } from "../../../lib/server/db";
 import { checkAccessCode, isUuid, json, publicError } from "../../../lib/server/request";
@@ -21,7 +22,7 @@ export async function GET(request) {
       const rater = await sql`SELECT 1 AS ok FROM raters WHERE id = ${sessionId}::uuid LIMIT 1`;
       if (!rater.length) return json(401, { error: "Session not found. Please sign in again." });
     }
-    return json(200, await getDataset());
+    return json(200, toRaterDataset(await getDataset()));
   } catch (error) {
     return publicError(error, "The annotation dataset could not be loaded.");
   }

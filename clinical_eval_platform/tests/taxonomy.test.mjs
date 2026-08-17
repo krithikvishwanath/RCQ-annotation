@@ -4,12 +4,14 @@ import {
   annotationProgress,
   applyDerivedRules,
   emptyAnnotation,
+  normalizeAnnotation,
   TAXONOMY_FIELDS,
   TAXONOMY_KEYS,
   validateAnnotation,
 } from "../lib/taxonomy.js";
 import { parseCsv } from "../lib/csv.js";
 import { parseAnnotationCsv } from "../lib/dataset-parser.js";
+import { toRaterDataset } from "../lib/rater-dataset.js";
 
 test("CSV parser preserves commas, quotes, and embedded newlines", () => {
   const rows = parseCsv('id,text\r\n1,"Dose, route, and \"\"timing\"\"?"\r\n2,"line one\nline two"\r\n');
@@ -38,9 +40,34 @@ test("dataset ingestion rejects duplicate stable IDs", () => {
   );
 });
 
-test("codebook exposes exactly 25 unique fields", () => {
-  assert.equal(TAXONOMY_FIELDS.length, 25);
-  assert.equal(new Set(TAXONOMY_KEYS).size, 25);
+test("rater dataset excludes submitter metadata", () => {
+  const dataset = toRaterDataset({
+    datasetId: "test-dataset",
+    questions: [
+      {
+        id: "1",
+        question: "What is the treatment?",
+        specialty: "Cardiology",
+        internalSource: "hidden",
+      },
+    ],
+  });
+
+  assert.deepEqual(dataset, {
+    datasetId: "test-dataset",
+    questions: [{ id: "1", question: "What is the treatment?" }],
+  });
+});
+
+test("codebook exposes exactly 24 unique fields", () => {
+  assert.equal(TAXONOMY_FIELDS.length, 24);
+  assert.equal(new Set(TAXONOMY_KEYS).size, 24);
+  assert.equal(TAXONOMY_KEYS.includes("in_specialty"), false);
+});
+
+test("normalization drops retired annotation fields", () => {
+  const normalized = normalizeAnnotation({ ...emptyAnnotation(), in_specialty: 1 });
+  assert.equal(Object.hasOwn(normalized, "in_specialty"), false);
 });
 
 test("only long taxonomies use dropdown controls", () => {
@@ -56,6 +83,16 @@ test("only long taxonomies use dropdown controls", () => {
       (field) => field.options.length <= 12,
     ),
   );
+});
+
+test("every multi-value choice includes inline option definitions", () => {
+  const choiceFields = TAXONOMY_FIELDS.filter((field) => field.type === "choice");
+  for (const field of choiceFields) {
+    assert.ok(
+      field.options.every((option) => typeof option.description === "string" && option.description.length > 0),
+      `${field.key} is missing an option definition`,
+    );
+  }
 });
 
 test("hard context rules are derived consistently", () => {
@@ -95,7 +132,7 @@ test("server validation rejects extra keys and invalid values", () => {
   assert.match(invalid.errors.join(" "), /Invalid value for risk/);
 });
 
-test("a complete annotation has all 25 fields", () => {
+test("a complete annotation has all 24 fields", () => {
   const labels = Object.fromEntries(
     TAXONOMY_FIELDS.map((field) => [field.key, field.options[0].value]),
   );
@@ -108,8 +145,8 @@ test("a complete annotation has all 25 fields", () => {
   const validated = validateAnnotation(labels, { partial: false });
   assert.equal(validated.ok, true, validated.errors.join(" "));
   assert.deepEqual(annotationProgress(validated.annotation), {
-    completed: 25,
-    total: 25,
+    completed: 24,
+    total: 24,
     isComplete: true,
   });
 });

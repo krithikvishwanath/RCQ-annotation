@@ -1,4 +1,4 @@
-import { annotationProgress, CODEBOOK_VERSION, validateAnnotation } from "../../../lib/taxonomy";
+import { annotationProgress, CODEBOOK_VERSION, normalizeAnnotation, validateAnnotation } from "../../../lib/taxonomy";
 import { ensureSchema } from "../../../lib/server/schema";
 import { getSql } from "../../../lib/server/db";
 import { checkAccessCode, isUuid, json, publicError } from "../../../lib/server/request";
@@ -32,7 +32,13 @@ export async function GET(request) {
       WHERE rater_id = ${sessionId}::uuid AND dataset_id = ${datasetId}
       ORDER BY question_id
     `;
-    return json(200, { codebookVersion: CODEBOOK_VERSION, annotations: rows });
+    return json(200, {
+      codebookVersion: CODEBOOK_VERSION,
+      annotations: rows.map((row) => ({
+        ...row,
+        labels: normalizeAnnotation(row.labels),
+      })),
+    });
   } catch (error) {
     return publicError(error, "Failed to load annotations.");
   }

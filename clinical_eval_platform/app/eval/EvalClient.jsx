@@ -6,7 +6,7 @@ import {
   annotationProgress,
   applyDerivedRules,
   CODEBOOK_VERSION,
-  emptyAnnotation,
+  normalizeAnnotation,
   TAXONOMY_FIELDS,
   TAXONOMY_GROUPS,
 } from "../../lib/taxonomy";
@@ -69,7 +69,7 @@ function stableShuffle(items, seedText) {
 
 function normalizeRecord(record = {}) {
   return {
-    labels: applyDerivedRules({ ...emptyAnnotation(), ...(record.labels || {}) }),
+    labels: normalizeAnnotation(record.labels),
     notes: typeof record.notes === "string" ? record.notes : "",
     updatedAt: record.updatedAt || null,
     pending: Boolean(record.pending),
@@ -114,16 +114,36 @@ async function putAnnotation(session, datasetId, questionId, record) {
   return data;
 }
 
+function OptionDefinitions({ field }) {
+  const definitions = field.options.filter((option) => option.description);
+  if (!definitions.length) return null;
+
+  return (
+    <div className="option-definitions">
+      <strong>Option definitions</strong>
+      <dl>
+        {definitions.map((option) => (
+          <div key={String(option.value)}>
+            <dt>{option.label}</dt>
+            <dd>{option.description}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }) {
   const departmentChosen = Boolean(labels.clinical_domain);
   const disabled =
     field.type === "derived" ||
     (field.key === "medicine_division" && labels.clinical_domain !== "Medicine");
   const useSelect = field.control === "select" || field.options.length > 12;
+  const hasDefinitions = field.options.some((option) => option.description);
   const describedBy = helpOpen ? `${field.key}-help` : undefined;
 
   return (
-    <fieldset className={`taxonomy-field ${value != null ? "taxonomy-field--answered" : ""}`}>
+    <fieldset id={`field-${field.key}`} tabIndex={-1} className={`taxonomy-field ${value != null ? "taxonomy-field--answered" : ""}`}>
       <legend className="sr-only">{field.label}</legend>
       <div className="taxonomy-field__heading">
         <span className="field-number">{field.number}</span>
@@ -138,14 +158,17 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
           aria-controls={`${field.key}-help`}
           onClick={onToggleHelp}
         >
-          {helpOpen ? "Hide rule" : "View rule"}
+          {helpOpen ? "Hide details" : hasDefinitions ? "Rule & definitions" : "View rule"}
         </button>
       </div>
 
       {helpOpen ? (
         <div className="field-help" id={`${field.key}-help`}>
-          <strong>Decision rule</strong>
-          <span>{field.help}</span>
+          <div className="field-help__rule">
+            <strong>How to decide</strong>
+            <span>{field.help}</span>
+          </div>
+          <OptionDefinitions field={field} />
         </div>
       ) : null}
 
@@ -201,7 +224,13 @@ function CodebookDrawer({ open, onClose, session }) {
     const query = search.trim().toLowerCase();
     if (!query) return TAXONOMY_FIELDS;
     return TAXONOMY_FIELDS.filter((field) =>
-      [field.number, field.label, field.prompt, field.help, ...field.options.map((option) => option.label)]
+      [
+        field.number,
+        field.label,
+        field.prompt,
+        field.help,
+        ...field.options.flatMap((option) => [option.label, option.description || ""]),
+      ]
         .join(" ")
         .toLowerCase()
         .includes(query),
@@ -243,7 +272,7 @@ function CodebookDrawer({ open, onClose, session }) {
   return (
     <>
       <button className="drawer-scrim" aria-label="Close codebook" onClick={onClose} />
-      <aside className="codebook-drawer" aria-label="Codebook v1" aria-modal="true" role="dialog">
+      <aside className="codebook-drawer" aria-label={`Codebook ${CODEBOOK_VERSION}`} aria-modal="true" role="dialog">
         <div className="drawer-header">
           <div><p className="eyebrow">Reference</p><h2>Codebook {CODEBOOK_VERSION}</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="Close codebook">×</button>
@@ -260,7 +289,7 @@ function CodebookDrawer({ open, onClose, session }) {
           <div className="codebook-rulebox">
             <strong>Always apply</strong>
             <ul>
-              <li>Use only the query text and stated specialty.</li>
+              <li>Use only the query text.</li>
               <li>Choose one best value for every field.</li>
               <li>Judge fields independently except for hard consistency rules.</li>
               <li>Surface flags require a literal cue in the text.</li>
@@ -289,7 +318,10 @@ function CodebookDrawer({ open, onClose, session }) {
               <details key={field.key}>
                 <summary><span>{field.number}</span>{field.label}</summary>
                 <p>{field.help}</p>
-                <div className="allowed-values"><strong>Allowed values</strong>{field.options.map((option) => option.label).join(" · ")}</div>
+                <OptionDefinitions field={field} />
+                {!field.options.some((option) => option.description) ? (
+                  <div className="allowed-values"><strong>Allowed values</strong>{field.options.map((option) => option.label).join(" · ")}</div>
+                ) : null}
               </details>
             ))}
             {!results.length ? <p className="empty-copy">No codebook fields match “{search}”.</p> : null}
@@ -642,6 +674,20 @@ export default function EvalClient() {
     mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, [activeGroup, currentProgress.isComplete, questionIndex, questions.length]);
 
+  const goToFirstUnanswered = useCallback(() => {
+    const field = TAXONOMY_FIELDS.find(
+      (candidate) => currentRecord.labels[candidate.key] == null,
+    );
+    if (!field) return;
+    setActiveGroup(field.group);
+    setOpenHelp(null);
+    window.setTimeout(() => {
+      const element = document.getElementById(`field-${field.key}`);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      element?.focus({ preventScroll: true });
+    }, 0);
+  }, [currentRecord.labels]);
+
   const claimMore = useCallback(async () => {
     if (!session || !dataset || session.mode === "local") return;
     setIsClaiming(true);
@@ -779,7 +825,6 @@ export default function EvalClient() {
               <div className="query-card__meta">
                 <div><span>Query {questionIndex + 1} of {questions.length}</span><strong id="query-heading">{currentQuestion.id}</strong></div>
                 <div className="query-card__badges">
-                  <span>{currentQuestion.specialty ? `Asker: ${currentQuestion.specialty}` : "Asker specialty not supplied"}</span>
                   <button onClick={copyQuery}>{copyStatus || "Copy query"}</button>
                 </div>
               </div>
@@ -848,13 +893,16 @@ export default function EvalClient() {
 
               {lastGroup && !currentProgress.isComplete ? (
                 <div className="completion-warning" role="status">
-                  <strong>{currentProgress.total - currentProgress.completed} fields remain.</strong>
-                  Use the section tabs above to find incomplete fields before moving to the next query.
+                  <div>
+                    <strong>{currentProgress.total - currentProgress.completed} fields remain.</strong>
+                    <span>Finish the unanswered fields before moving to the next query.</span>
+                  </div>
+                  <button type="button" onClick={goToFirstUnanswered}>Go to first unanswered</button>
                 </div>
               ) : null}
 
               {lastGroup && currentProgress.isComplete ? (
-                <div className="completion-success" role="status"><span>✓</span><div><strong>Annotation complete</strong><p>All 25 required fields are valid and autosaved.</p></div></div>
+                <div className="completion-success" role="status"><span>✓</span><div><strong>Annotation complete</strong><p>All {currentProgress.total} required fields are valid and autosaved.</p></div></div>
               ) : null}
             </section>
 

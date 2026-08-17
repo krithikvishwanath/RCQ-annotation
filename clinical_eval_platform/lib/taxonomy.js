@@ -1,9 +1,15 @@
+import { OPTION_DEFINITIONS } from "./option-definitions.js";
+
 export const BINARY_OPTIONS = [
   { value: 0, label: "No" },
   { value: 1, label: "Yes" },
 ];
 
-const options = (values) => values.map((value) => ({ value, label: value }));
+const options = (fieldKey, values) => values.map((value) => ({
+  value,
+  label: value,
+  description: OPTION_DEFINITIONS[fieldKey]?.[value] || "",
+}));
 
 export const TAXONOMY_GROUPS = [
   {
@@ -34,7 +40,7 @@ export const TAXONOMY_GROUPS = [
     id: "form",
     label: "Scope & form",
     shortLabel: "Finish",
-    description: "Finish with specialty scope, query form, and abbreviation use.",
+    description: "Finish with query form and abbreviation use.",
   },
 ];
 
@@ -47,7 +53,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "What single task would satisfy the request?",
     help: "Classify by the deliverable, not merely the subject mentioned. Drafting a true artifact beats its topic; drug regimen questions are drug information, while broader care strategy is treatment and management.",
     type: "choice",
-    options: options([
+    options: options("task_category", [
       "Drug information & pharmacotherapy",
       "Treatment & management",
       "Foundational knowledge",
@@ -66,10 +72,10 @@ export const TAXONOMY_FIELDS = [
     group: "classification",
     label: "Owning clinical department",
     prompt: "Which NYULH department ordinarily owns this problem?",
-    help: "Judge the content, never the asker's specialty. Apply the precedence ladder: psychiatry; organic neurologic disease; pregnancy/gynecology; other pediatric care; operative departments; perioperative/pain; ED processes; diagnostic services; radiation oncology; organ-defined territory; Medicine; population health; basic science; forensic; Other.",
+    help: "Judge only the query's clinical content. Apply the precedence ladder: psychiatry; organic neurologic disease; pregnancy/gynecology; other pediatric care; operative departments; perioperative/pain; ED processes; diagnostic services; radiation oncology; organ-defined territory; Medicine; population health; basic science; forensic; Other.",
     type: "choice",
     control: "select",
-    options: options([
+    options: options("clinical_domain", [
       "Anesthesiology, Perioperative Care, and Pain Medicine",
       "Biochemistry and Molecular Pharmacology",
       "Cardiothoracic Surgery",
@@ -106,7 +112,7 @@ export const TAXONOMY_FIELDS = [
     help: "Complete this only when the clinical department is Medicine. Otherwise select Not applicable.",
     type: "choice",
     control: "select",
-    options: options([
+    options: options("medicine_division", [
       "Cardiology",
       "Endocrinology, Diabetes, and Metabolism",
       "Environmental Medicine",
@@ -132,7 +138,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "What does the asker want from the answer?",
     help: "Intent is the motive, distinct from task. Explicit confirmation cues make Verification outrank other intents; dose answers are always Dosing/conversion; a patient-anchored choice is Clinical decision, while a general contrast is Comparison.",
     type: "choice",
-    options: options([
+    options: options("question_intent", [
       "Verification",
       "Fact/property lookup",
       "Clinical decision",
@@ -155,7 +161,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "Which AMA use-case best matches the primary deliverable?",
     help: "Drafting wins when it embeds another function. General clinical knowledge and patient-specific management default to summaries of research and standards of care; Assistive diagnosis is reserved for case-anchored diagnostic support.",
     type: "choice",
-    options: options([
+    options: options("ama_category", [
       "Summaries of medical research and standards of care",
       "Creation of discharge instructions, care plans or progress notes",
       "Documentation of billing codes, medical charts or visit notes",
@@ -244,7 +250,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "What is the potential clinical harm if the answer is wrong and acted upon?",
     help: "Rate potential harm, not error likelihood. Minimal: no plausible welfare impact. Low: minor/easily caught. Moderate: temporary or reversible harm. High: serious or lasting harm. Critical: death or catastrophic harm, including high-alert medications, pediatric weight-based dosing, time-critical emergencies, or teratogenic exposure.",
     type: "choice",
-    options: options(["Minimal", "Low", "Moderate", "High", "Critical"]),
+    options: options("risk", ["Minimal", "Low", "Moderate", "High", "Critical"]),
   },
   {
     key: "answerability",
@@ -254,7 +260,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "How fully can the query be answered using only its text and general knowledge?",
     help: "High: complete answer possible. Partial: useful answer needs material conditions or assumptions. Low: too vague, dependent on unavailable information, or unsafe to attempt.",
     type: "choice",
-    options: options(["High", "Partial", "Low"]),
+    options: options("answerability", ["High", "Partial", "Low"]),
   },
   {
     key: "route",
@@ -264,7 +270,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "What is the least restrictive route that is still safe?",
     help: "Test in order: Direct, Retrieval, Clarification, Escalation, Abstention. Retrieval addresses source needs; Clarification addresses missing details the asker can supply; Escalation is for individualized human judgement beyond an assistant pathway.",
     type: "choice",
-    options: options(["Direct", "Retrieval", "Clarification", "Escalation", "Abstention"]),
+    options: options("route", ["Direct", "Retrieval", "Clarification", "Escalation", "Abstention"]),
   },
   {
     key: "mentions_medication",
@@ -337,28 +343,18 @@ export const TAXONOMY_FIELDS = [
     options: BINARY_OPTIONS,
   },
   {
-    key: "in_specialty",
-    number: "22",
-    group: "form",
-    label: "Within asker's specialty",
-    prompt: "Is the content within the routine scope of the stated specialty or role?",
-    help: "Include routine general clinical knowledge, documentation, and coding. If no specialty is supplied, judge against the scope of a general clinician.",
-    type: "binary",
-    options: BINARY_OPTIONS,
-  },
-  {
     key: "query_form",
-    number: "23",
+    number: "22",
     group: "form",
     label: "Query form",
     prompt: "What is the functional form of the main request?",
     help: "Question: interrogative in function, including permissibility. Command: an imperative addressed to the assistant, even if politely phrased as “Can you write…”. Fragment: neither. A central imperative wins in a mixed query.",
     type: "choice",
-    options: options(["Question", "Command", "Fragment"]),
+    options: options("query_form", ["Question", "Command", "Fragment"]),
   },
   {
     key: "uses_abbreviation",
-    number: "24",
+    number: "23",
     group: "form",
     label: "Uses clinical abbreviation",
     prompt: "Does the query contain clinical abbreviations, acronyms, or shorthand?",
@@ -373,6 +369,12 @@ export const TAXONOMY_BY_KEY = Object.fromEntries(TAXONOMY_FIELDS.map((field) =>
 
 export function emptyAnnotation() {
   return Object.fromEntries(TAXONOMY_KEYS.map((key) => [key, null]));
+}
+
+export function normalizeAnnotation(input = {}) {
+  return applyDerivedRules(
+    Object.fromEntries(TAXONOMY_KEYS.map((key) => [key, input?.[key] ?? null])),
+  );
 }
 
 export function applyDerivedRules(input) {
@@ -407,9 +409,7 @@ export function validateAnnotation(value, { partial = true } = {}) {
   }
 
   const extraKeys = Object.keys(value).filter((key) => !TAXONOMY_KEYS.includes(key));
-  const normalized = applyDerivedRules(
-    Object.fromEntries(TAXONOMY_KEYS.map((key) => [key, value[key] ?? null])),
-  );
+  const normalized = normalizeAnnotation(value);
   const errors = extraKeys.length ? [`Unexpected fields: ${extraKeys.join(", ")}.`] : [];
 
   for (const field of TAXONOMY_FIELDS) {
@@ -448,4 +448,4 @@ export function validateAnnotation(value, { partial = true } = {}) {
   return { ok: errors.length === 0, errors, annotation: normalized };
 }
 
-export const CODEBOOK_VERSION = "v1";
+export const CODEBOOK_VERSION = "v2";

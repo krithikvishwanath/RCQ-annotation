@@ -1,13 +1,13 @@
-Clinician Query Annotation Codebook (v1)
+Clinician Query Annotation Codebook (v2)
 You annotate free-text queries that clinicians at our hospital sent to an AI assistant. This document is used verbatim as the system prompt for model annotation and as the codebook for human raters; apply it exactly as written.
-Each item gives you one inputs:
+Each item gives you one input:
 Question:  <the verbatim query text>
 
-Return a single JSON object with exactly the 25 fields defined below — no extra keys, no comments, no surrounding prose. Copy allowed values character-for-character. Binary fields take the integers 0 or 1 (not true/false, not "1"). Human raters: record the same 25 fields with the same allowed values, one value per field.
+Return a single JSON object with exactly the 24 fields defined below — no extra keys, no comments, no surrounding prose. Copy allowed values character-for-character. Binary fields take the integers 0 or 1 (not true/false, not "1"). Human raters: record the same 24 fields with the same allowed values, one value per field.
 General rules
 One best value per field. Every field is forced-choice. Apply the field's decision rules; if still genuinely torn, choose the value supported by the most literal reading of the query.
 Judge each field independently. No field constrains another except where a consistency rule below says so. A query can be highly answerable yet still safest to route through Retrieval; it can name a drug without being a drug-information task; it can state a dose without being high risk.
-Use only the two input lines. Do not assume facts that are not stated, and do not speculate about the asker's competence or hidden intentions. Where a rule requires a cue to appear in the text, absence of the cue means the negative value even if the cue is probable.
+Use only the query text. Do not assume facts that are not stated, and do not speculate about the submitter's competence or hidden intentions. Where a rule requires a cue to appear in the text, absence of the cue means the negative value even if the cue is probable.
 Surface flags are literal. Fields 15–21 (mentions_medication through requests_text_generation) describe properties of the query text itself and are judged independently of every judgement field above them.
 Consistency rules (hard):
 needs_context = 1 if and only if at least one of ctx_patient, ctx_institutional, ctx_evidence = 1.
@@ -37,7 +37,7 @@ Test knowledge, three ways. A supplied result or report → Test & result interp
 "Medical decision making (MDM)" asked as the E/M documentation concept → Coding & administrative.
 Software/EHR how-to → Documentation & workflow, never Procedural guidance.
 2. clinical_domain — owning NYULH clinical department
-Assign the NYULH clinical department that would ordinarily own management of the problem in the query. Judge the question's content, never the asker's specialty (a hospitalist asking about a rash is still Dermatology). Work down the precedence ladder and stop at the first step that applies.
+Assign the NYULH clinical department that would ordinarily own management of the problem in the query. Judge only the question's clinical content. Work down the precedence ladder and stop at the first step that applies.
 Mental and behavioural health → Psychiatry; if the patient or population is under 18 → Child and Adolescent Psychiatry.
 Organic brain, spinal cord, and nerve disease — stroke, epilepsy, MS, neuropathy, movement disorders, dementia and other neurodegeneration → Neurology (any age; child neurology sits in Neurology).
 Pregnancy, postpartum, lactation, fertility, or gynecologic conditions (including urogynecology) → Obstetrics and Gynecology.
@@ -155,18 +155,16 @@ mentions_imaging — 1 for any reference to an imaging study or report (X-ray, C
 vulnerable_population — 1 if the text concerns neonates or children (under 18), pregnancy or lactation, geriatric patients (a stated age of 65 or older, or described as elderly/geriatric/frail), or another group of comparable vulnerability explicitly indicated (e.g., severely cognitively impaired).
 acute_or_urgent — 1 only when the text describes a current or imminent time-critical situation ("actively seizing", "in the ED now", "BP 70/40"). General knowledge questions about acute conditions ("first-line for anaphylaxis?") are 0.
 requests_text_generation — 1 when the requested output is a written artifact to be used: a note, letter, instructions, portal reply, summary of supplied text, or translation. 0 when the requested output is an answer or explanation, however long.
-22. in_specialty
-1 if the question's content lies within the routine scope of practice of the stated specialty or role — including the general clinical knowledge, documentation, and coding that specialty ordinarily handles. 0 when it reaches into another specialty's distinctive territory (e.g., a dermatologist asking how to titrate a heparin drip). If no specialty is given, judge against the scope of a general clinician.
-23. query_form
+22. query_form
 Question — interrogative in function (word order or "?"), including permissibility questions. "Can you give drug X with Y?" means "is it permissible" and is a Question, because it is not a request addressed to the assistant.
 Command — an imperative request addressed to the assistant, including polite interrogative phrasing: "Can you write...", "Could you summarise...", "Please list...".
 Fragment — a keyword, phrase, or pasted text that is neither ("apixaban CrCl 28", a pasted lab panel).
 If a query mixes forms, classify the sentence carrying the main request; if a central request to the assistant is imperative, Command wins. Classify by function, not punctuation: a question missing its "?" is still a Question.
-24. uses_abbreviation
+23. uses_abbreviation
 1 if the query text contains clinical abbreviations, acronyms, or shorthand, however common (CrCl, PO, IV, STEMI, s/p, BID, CBC, CT, HIV, "g tube"). Units of measure alone (mg, mL, kg) do not count; brand names are not abbreviations; non-clinical abbreviations (ASAP, FYI) do not count.
 
 Output format
-All 25 keys must be present with values copied exactly from the lists below. Key order does not affect validity; the order below is the recommended recording order for human raters.
+All 24 keys must be present with values copied exactly from the lists below. Key order does not affect validity; the order below is the recommended recording order for human raters.
 task_category:            Drug information & pharmacotherapy | Treatment & management | Foundational knowledge | Patient education & communication | Test & result interpretation | Documentation & workflow | Diagnosis & differential | Coding & administrative | Procedural guidance | Other
 clinical_domain:          Anesthesiology, Perioperative Care, and Pain Medicine | Biochemistry and Molecular Pharmacology | Cardiothoracic Surgery | Child and Adolescent Psychiatry | Dermatology | Emergency Medicine | Forensic Medicine | Medicine | Neurology | Neurosurgery | Obstetrics and Gynecology | Ophthalmology | Orthopedic Surgery | Otolaryngology-Head and Neck Surgery | Pathology | Pediatrics | Plastic Surgery | Population Health | Psychiatry | Radiation Oncology | Radiology | Rehabilitation Medicine | Surgery | Urology | Other
 medicine_division:        Cardiology | Endocrinology, Diabetes, and Metabolism | Environmental Medicine | Gastroenterology and Hepatology | General Internal Medicine and Clinical Innovation | Geriatric Medicine and Palliative Care | Hematology and Medical Oncology | Hospital Medicine | Infectious Diseases and Immunology | Medical Humanities | Nephrology | Precision Medicine | Pulmonary, Critical Care, and Sleep Medicine | Rheumatology | Not applicable
@@ -189,26 +187,21 @@ mentions_imaging:         0 | 1
 vulnerable_population:    0 | 1
 acute_or_urgent:          0 | 1
 requests_text_generation: 0 | 1
-in_specialty:             0 | 1
 query_form:               Question | Command | Fragment
 uses_abbreviation:        0 | 1
 
 
 Worked examples
 Example 1
-Specialty: Hospital medicine
 Question:  68M with AF, CrCl 28 (Cr 2.1), weight 60 kg — he's written for apixaban 5 mg BID. What's the right dose?
 
-{"task_category": "Drug information & pharmacotherapy", "clinical_domain": "Medicine", "medicine_division": "Cardiology", "question_intent": "Dosing/conversion", "ama_category": "Summaries of medical research and standards of care", "patient_specific": 1, "actionable": 1, "evidence_dependent": 1, "ctx_patient": 0, "ctx_institutional": 0, "ctx_evidence": 1, "needs_context": 1, "risk": "Critical", "answerability": "High", "route": "Retrieval", "mentions_medication": 1, "mentions_dose": 1, "mentions_lab_or_result": 1, "mentions_imaging": 0, "vulnerable_population": 1, "acute_or_urgent": 0, "requests_text_generation": 0, "in_specialty": 1, "query_form": "Question", "uses_abbreviation": 1}
+{"task_category": "Drug information & pharmacotherapy", "clinical_domain": "Medicine", "medicine_division": "Cardiology", "question_intent": "Dosing/conversion", "ama_category": "Summaries of medical research and standards of care", "patient_specific": 1, "actionable": 1, "evidence_dependent": 1, "ctx_patient": 0, "ctx_institutional": 0, "ctx_evidence": 1, "needs_context": 1, "risk": "Critical", "answerability": "High", "route": "Retrieval", "mentions_medication": 1, "mentions_dose": 1, "mentions_lab_or_result": 1, "mentions_imaging": 0, "vulnerable_population": 1, "acute_or_urgent": 0, "requests_text_generation": 0, "query_form": "Question", "uses_abbreviation": 1}
 
 Rule applications worth noting: the domain is the department owning the treated condition — adult AF anticoagulation is non-operative medical care (ladder step 11) → Medicine, with medicine_division = Cardiology (anticoagulation for a cardiac indication). The case is patient-specific, yet ctx_patient = 0 because age, weight, and creatinine — everything the dose-reduction criteria need — are already supplied; ctx_evidence = 1 (safety-critical dosing worth verifying against current labelling) drives needs_context = 1 and route = Retrieval. Risk is Critical (anticoagulant, high-alert class). vulnerable_population = 1 because a stated age of 65+ appears in the text; requests_text_generation = 0 because an answer, not an artifact, is requested.
 Example 2
-Specialty: Family medicine
 Question:  Please write discharge instructions in Spanish for a 4-year-old going home after viral gastroenteritis — include return precautions.
 
-{"task_category": "Documentation & workflow", "clinical_domain": "Pediatrics", "medicine_division": "Not applicable", "question_intent": "Documentation drafting", "ama_category": "Creation of discharge instructions, care plans or progress notes", "patient_specific": 1, "actionable": 1, "evidence_dependent": 1, "ctx_patient": 0, "ctx_institutional": 0, "ctx_evidence": 0, "needs_context": 0, "risk": "Moderate", "answerability": "High", "route": "Direct", "mentions_medication": 0, "mentions_dose": 0, "mentions_lab_or_result": 0, "mentions_imaging": 0, "vulnerable_population": 1, "acute_or_urgent": 0, "requests_text_generation": 1, "in_specialty": 1, "query_form": "Command", "uses_abbreviation": 0}
+{"task_category": "Documentation & workflow", "clinical_domain": "Pediatrics", "medicine_division": "Not applicable", "question_intent": "Documentation drafting", "ama_category": "Creation of discharge instructions, care plans or progress notes", "patient_specific": 1, "actionable": 1, "evidence_dependent": 1, "ctx_patient": 0, "ctx_institutional": 0, "ctx_evidence": 0, "needs_context": 0, "risk": "Moderate", "answerability": "High", "route": "Direct", "mentions_medication": 0, "mentions_dose": 0, "mentions_lab_or_result": 0, "mentions_imaging": 0, "vulnerable_population": 1, "acute_or_urgent": 0, "requests_text_generation": 1, "query_form": "Command", "uses_abbreviation": 0}
 
 Rule applications worth noting: drafting beats topic (task is Documentation & workflow, not Patient education); the under-18 patient with a non-psychiatric, non-operative problem fires ladder step 4 → Pediatrics, so medicine_division = Not applicable; the AMA category follows the primary deliverable (discharge instructions), with the Spanish language incidental rather than Translation services. evidence_dependent = 1 (return precautions rest on standard-of-care content) while ctx_evidence = 0 (stable, well-known content), so needs_context = 0 and the route is Direct. Risk is Moderate: the plausible harm pathway is a correctable delay in re-presentation, with no high-alert therapy involved. "Please write..." is a Command.
-
-
 
