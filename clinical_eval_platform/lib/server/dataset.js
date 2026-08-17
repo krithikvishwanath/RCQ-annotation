@@ -20,12 +20,19 @@ function validatePrivateBlobUrl(value) {
   if (url.protocol !== "https:" || !url.hostname.endsWith(".private.blob.vercel-storage.com")) {
     throw new Error("ANNOTATION_BLOB_URL must point to a Vercel Private Blob URL.");
   }
+  if (!url.pathname || url.pathname === "/") {
+    throw new Error("ANNOTATION_BLOB_URL must point to the uploaded CSV file, not the Blob store root.");
+  }
   return url;
 }
 
 async function loadPrivateDataset() {
   const blobUrl = validatePrivateBlobUrl(process.env.ANNOTATION_BLOB_URL);
-  const result = await get(blobUrl.href, {
+  // Resolve the file through the project's connected BLOB_STORE_ID. Using the
+  // pathname prevents a copied URL from silently authenticating against a
+  // different store hostname and returning an opaque 403.
+  const blobPathname = blobUrl.pathname.replace(/^\/+/, "");
+  const result = await get(blobPathname, {
     access: "private",
     useCache: false,
     abortSignal: AbortSignal.timeout(15_000),

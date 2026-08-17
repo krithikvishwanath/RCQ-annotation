@@ -62,7 +62,7 @@ vercel env pull .env.local
 vercel blob put ../real_chat_sample.csv --pathname datasets/real-chats-2026-08-17.csv --access private
 ```
 
-Copy the private URL returned by the upload into the Vercel project's `ANNOTATION_BLOB_URL` Production environment variable. Confirm that the connected store added `BLOB_STORE_ID`, then redeploy. Use a new versioned pathname and update `ANNOTATION_BLOB_URL` when replacing a dataset so each study run has an unambiguous source.
+Copy the private URL returned by the upload into the Vercel project's `ANNOTATION_BLOB_URL` Production environment variable. Confirm that the connected store added `BLOB_STORE_ID`, then redeploy. At runtime, the app extracts the file pathname and retrieves it from that connected store, avoiding cross-store URL/credential mismatches. Use a new versioned pathname and update `ANNOTATION_BLOB_URL` when replacing a dataset so each study run has an unambiguous source.
 
 The production runtime also needs `DATABASE_URL` (or `POSTGRES_URL`), `EVAL_ACCESS_CODE`, and `ADMIN_PASSWORD`. After deployment, `/admin` should label the source as **Active dataset** and show the expected query count. If it still says **Example data**, check that both Blob environment variables were applied to Production and redeploy once more.
 
