@@ -13,7 +13,7 @@ export const OPTION_DEFINITIONS = {
   },
   clinical_domain: {
     "Anesthesiology, Perioperative Care, and Pain Medicine": "Anesthesia, airway or sedation, perioperative assessment and medication management, and acute or chronic pain care.",
-    "Biochemistry and Molecular Pharmacology": "Molecular or biochemical mechanisms without patient-management framing.",
+    "Biochemistry and Molecular Pharmacology": "Molecular or biochemical mechanisms without patient-management framing; never a fallback for a clinical medication with an unstated indication.",
     "Cardiothoracic Surgery": "Operative care involving the heart, lungs, or esophagus.",
     "Child and Adolescent Psychiatry": "Mental or behavioral health involving a patient under 18.",
     Dermatology: "Medical management of skin disease.",
@@ -43,7 +43,7 @@ export const OPTION_DEFINITIONS = {
     "Endocrinology, Diabetes, and Metabolism": "Diabetes, thyroid and other endocrine disease, obesity, and metabolic bone disease.",
     "Environmental Medicine": "Occupational and environmental exposures.",
     "Gastroenterology and Hepatology": "Gastrointestinal and liver disease, including endoscopy.",
-    "General Internal Medicine and Clinical Innovation": "Primary care, individual preventive care, multimorbidity, and the default when no Medicine subspecialty clearly owns the problem.",
+    "General Internal Medicine and Clinical Innovation": "Primary care, individual preventive care, multimorbidity, and the default when no Medicine subspecialty clearly owns the problem, including medications with multiple common indications across divisions when no indication is stated.",
     "Geriatric Medicine and Palliative Care": "Geriatric syndromes, serious-illness support, palliative care, and end-of-life care.",
     "Hematology and Medical Oncology": "Benign and malignant hematology, venous thromboembolism, and systemic cancer therapy.",
     "Hospital Medicine": "Inpatient care processes and logistics not owned by another subspecialty.",

@@ -1,5 +1,6 @@
 import { getSql } from "./db";
 import { getDataset } from "./dataset";
+import { REQUIRED_REVIEWS_PER_QUERY } from "../study-config";
 
 let schemaPromise;
 
@@ -55,7 +56,7 @@ async function initializeSchema() {
     CREATE TABLE IF NOT EXISTS question_review_slots (
       benchmark_id text NOT NULL,
       question_id text NOT NULL,
-      slot smallint NOT NULL CHECK (slot >= 0 AND slot < 3),
+      slot smallint NOT NULL CHECK (slot >= 0 AND slot < 2),
       rater_id uuid REFERENCES raters(id) ON DELETE SET NULL,
       assigned_at timestamptz,
       last_activity_at timestamptz,
@@ -98,7 +99,7 @@ async function initializeSchema() {
     INSERT INTO question_review_slots (benchmark_id, question_id, slot)
     SELECT ${datasetId}, q.question_id, slots.slot
     FROM unnest(${sql.array(questionIds)}::text[]) AS q(question_id)
-    CROSS JOIN generate_series(0, 2) AS slots(slot)
+    CROSS JOIN generate_series(0, ${REQUIRED_REVIEWS_PER_QUERY - 1}) AS slots(slot)
     ON CONFLICT (benchmark_id, question_id, slot) DO NOTHING
   `;
 

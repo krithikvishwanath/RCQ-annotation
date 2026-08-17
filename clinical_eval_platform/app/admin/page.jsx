@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDataset } from "../../lib/server/dataset";
 import { ensureSchema } from "../../lib/server/schema";
 import { getSql } from "../../lib/server/db";
+import { REQUIRED_REVIEWS_PER_QUERY } from "../../lib/study-config";
 import ResetClient from "./ResetClient";
 
 export const runtime = "nodejs";
@@ -21,11 +22,23 @@ export default async function AdminPage() {
     const sql = getSql();
     const summaryRows = await sql`
       SELECT
-        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId}) AS total_slots,
-        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId} AND rater_id IS NOT NULL) AS assigned_slots,
-        (SELECT COUNT(*)::int FROM annotations WHERE dataset_id = ${dataset.datasetId}) AS started,
-        (SELECT COUNT(*)::int FROM annotations WHERE dataset_id = ${dataset.datasetId} AND is_complete) AS complete,
-        (SELECT COUNT(DISTINCT rater_id)::int FROM annotations WHERE dataset_id = ${dataset.datasetId}) AS annotators
+        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId} AND slot < ${REQUIRED_REVIEWS_PER_QUERY}) AS total_slots,
+        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId} AND slot < ${REQUIRED_REVIEWS_PER_QUERY} AND rater_id IS NOT NULL) AS assigned_slots,
+        (SELECT COUNT(*)::int FROM annotations a WHERE a.dataset_id = ${dataset.datasetId} AND EXISTS (
+          SELECT 1 FROM question_review_slots s
+          WHERE s.benchmark_id = a.dataset_id AND s.question_id = a.question_id
+            AND s.rater_id = a.rater_id AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
+        )) AS started,
+        (SELECT COUNT(*)::int FROM annotations a WHERE a.dataset_id = ${dataset.datasetId} AND a.is_complete AND EXISTS (
+          SELECT 1 FROM question_review_slots s
+          WHERE s.benchmark_id = a.dataset_id AND s.question_id = a.question_id
+            AND s.rater_id = a.rater_id AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
+        )) AS complete,
+        (SELECT COUNT(DISTINCT a.rater_id)::int FROM annotations a WHERE a.dataset_id = ${dataset.datasetId} AND EXISTS (
+          SELECT 1 FROM question_review_slots s
+          WHERE s.benchmark_id = a.dataset_id AND s.question_id = a.question_id
+            AND s.rater_id = a.rater_id AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
+        )) AS annotators
     `;
     summary = summaryRows[0] || summary;
 
@@ -40,8 +53,10 @@ export default async function AdminPage() {
       FROM raters r
       LEFT JOIN question_review_slots s
         ON s.rater_id = r.id AND s.benchmark_id = ${dataset.datasetId}
+        AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
       LEFT JOIN annotations a
         ON a.rater_id = r.id AND a.dataset_id = ${dataset.datasetId}
+        AND a.question_id = s.question_id
       GROUP BY r.id, r.name
       HAVING COUNT(DISTINCT s.question_id) > 0 OR COUNT(DISTINCT a.question_id) > 0
       ORDER BY MAX(a.updated_at) DESC NULLS LAST, r.name ASC
@@ -58,6 +73,7 @@ export default async function AdminPage() {
           AND a.question_id = s.question_id
           AND a.rater_id = s.rater_id
         WHERE s.benchmark_id = ${dataset.datasetId}
+          AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
         GROUP BY s.question_id
       )
       SELECT completed_reviews, COUNT(*)::int AS queries
@@ -98,7 +114,7 @@ export default async function AdminPage() {
             <section className="admin-stats" aria-label="Study statistics">
               <div><span>Queries</span><strong>{totalQueries}</strong><small>in active dataset</small></div>
               <div><span>Annotators</span><strong>{summary.annotators}</strong><small>with saved work</small></div>
-              <div><span>Assigned slots</span><strong>{summary.assigned_slots}<em> / {summary.total_slots}</em></strong><small>three reviews per query</small></div>
+              <div><span>Assigned slots</span><strong>{summary.assigned_slots}<em> / {summary.total_slots}</em></strong><small>{REQUIRED_REVIEWS_PER_QUERY} reviews per query</small></div>
               <div><span>Completed reviews</span><strong>{summary.complete}<em> / {summary.total_slots}</em></strong><small>{completionPercent}% complete</small></div>
             </section>
 
@@ -125,13 +141,13 @@ export default async function AdminPage() {
               <section className="admin-card">
                 <div className="admin-card__heading"><div><p className="eyebrow">Reliability</p><h2>Query coverage</h2></div></div>
                 <div className="coverage-list">
-                  {[0, 1, 2, 3].map((reviewCount) => {
+                  {Array.from({ length: REQUIRED_REVIEWS_PER_QUERY + 1 }, (_, reviewCount) => reviewCount).map((reviewCount) => {
                     const found = coverage.find((row) => row.completed_reviews === reviewCount);
                     const count = found?.queries || 0;
                     return <div key={reviewCount}><span>{reviewCount} completed {reviewCount === 1 ? "review" : "reviews"}</span><strong>{count}</strong><div><i style={{ width: totalQueries ? `${(count / totalQueries) * 100}%` : "0%" }} /></div></div>;
                   })}
                 </div>
-                <p className="admin-card__note">Each query has three independent review slots. Export includes partial rows but marks completion explicitly.</p>
+                <p className="admin-card__note">Each query has {REQUIRED_REVIEWS_PER_QUERY} independent review slots. Export includes partial rows but marks completion explicitly.</p>
               </section>
             </div>
 

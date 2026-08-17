@@ -1,11 +1,12 @@
 # Clinical Query Taxonomy
 
-A clinician-facing annotation platform for classifying de-identified queries submitted to a hospital LLM wrapper during routine care. The interface and server validation implement the 25-field **Clinician Query Annotation Codebook v1** in [`prompt.txt`](prompt.txt).
+A clinician-facing annotation platform for classifying de-identified queries submitted to a hospital LLM wrapper during routine care. The interface and server validation implement the 24-field **Clinician Query Annotation Codebook v2.1** in [`prompt.txt`](prompt.txt).
 
 The application lives in `clinical_eval_platform/` and provides:
 
-- query-level assignment with three independent review slots;
-- exactly 25 forced-choice taxonomy fields;
+- breadth-first random assignment with two independent review slots per query;
+- 40 initial queries plus optional clinician-requested batches of 10;
+- exactly 24 forced-choice taxonomy fields;
 - inline field rules and a searchable codebook;
 - automatic enforcement of all hard consistency rules;
 - debounced server autosave plus browser recovery for interrupted sessions;
@@ -27,11 +28,13 @@ The input is UTF-8 CSV. Recognized columns:
 
 - query text (required): `question`, `query`, `prompt`, `query_text`, `chat`, `message`, `user_message`, or `text`;
 - stable ID (recommended): `id`, `index`, `row_index`, `query_id`, `question_id`, or `chat_id`;
-- asker specialty (optional): `specialty`, `speciality`, `asker_specialty`, `clinician_specialty`, or `role`.
+- source specialty metadata (optional, admin export only): `specialty`, `speciality`, `asker_specialty`, `clinician_specialty`, or `role`.
 
 Additional columns, including `phipii`, are preserved as source metadata boundaries and do not determine whether a non-empty query is imported. Empty query rows are skipped and counted without logging row contents.
 
 Set `ANNOTATION_INPUT` to use another local path. Duplicate IDs and empty datasets fail the build.
+
+Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries that already have one reviewer. After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice, and each query has at most two independent reviewers.
 
 ## Configuration
 
@@ -40,7 +43,6 @@ Copy `clinical_eval_platform/.env.example` and set:
 - `DATABASE_URL` (or `POSTGRES_URL`) for Postgres persistence;
 - `EVAL_ACCESS_CODE` for annotator/API access;
 - `ADMIN_PASSWORD` (and optionally `ADMIN_USER`) for the admin portal;
-- `NEXT_PUBLIC_DEFAULT_ASSIGNMENT_COUNT` for assignment batch size.
 
 Production fails closed when either access code or admin password is missing. Local development can enter a clearly labeled browser-only demo mode when Postgres is absent.
 
@@ -89,7 +91,7 @@ npm test
 npm run build
 ```
 
-The admin portal is at `/admin`. Its export includes query text, optional specialty, all 25 labels in codebook order, completion state, notes, and audit timestamps.
+The admin portal is at `/admin`. Its export includes query text, optional source specialty metadata, all 24 labels in codebook order, completion state, notes, and audit timestamps.
 
 ## License
 

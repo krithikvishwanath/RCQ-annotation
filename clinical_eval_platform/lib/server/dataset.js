@@ -56,7 +56,7 @@ async function loadPrivateDataset() {
   return {
     datasetId,
     generatedAt: new Date().toISOString(),
-    codebookVersion: "v2",
+    codebookVersion: "v2.1",
     isExample: false,
     sourceLabel: "Private clinical query dataset",
     skippedEmptyRows,

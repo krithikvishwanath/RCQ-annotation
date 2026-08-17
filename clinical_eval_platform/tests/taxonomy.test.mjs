@@ -3,14 +3,16 @@ import assert from "node:assert/strict";
 import {
   annotationProgress,
   applyDerivedRules,
+  CODEBOOK_VERSION,
   emptyAnnotation,
   normalizeAnnotation,
   TAXONOMY_FIELDS,
   TAXONOMY_KEYS,
   validateAnnotation,
 } from "../lib/taxonomy.js";
+import { OPTION_DEFINITIONS } from "../lib/option-definitions.js";
 import { parseCsv } from "../lib/csv.js";
-import { parseAnnotationCsv } from "../lib/dataset-parser.js";
+import { normalizeDatasetText, parseAnnotationCsv } from "../lib/dataset-parser.js";
 import { toRaterDataset } from "../lib/rater-dataset.js";
 
 test("CSV parser preserves commas, quotes, and embedded newlines", () => {
@@ -38,6 +40,31 @@ test("dataset ingestion rejects duplicate stable IDs", () => {
     () => parseAnnotationCsv("row_index,text\n7,First\n7,Second\n"),
     /Duplicate query ID/,
   );
+});
+
+test("dataset ingestion repairs known mojibake and HTML entities", () => {
+  const replacements = [
+    ["‚Äô", "'"],
+    ["‚Äò", "'"],
+    ["‚Äã", ""],
+    ["‚Ä¶", "…"],
+    ["‚Ä¢", "-"],
+    ["‚Äê", "-"],
+    ["-¬≠", "-"],
+    ["‚Äú", "'"],
+    ["‚Äù", "'"],
+    ["&nbsp;", " "],
+    ["¬†", " "],
+    ["‚Äì", "–"],
+    ["¬Æ", "®"],
+    ["&amp;", "&"],
+    ["‚Äö√Ñ√¨", "-"],
+    ["\u00a0", " "],
+  ];
+
+  for (const [source, expected] of replacements) {
+    assert.equal(normalizeDatasetText(source), expected, `Failed to normalize ${source}`);
+  }
 });
 
 test("rater dataset excludes submitter metadata", () => {
@@ -93,6 +120,20 @@ test("every multi-value choice includes inline option definitions", () => {
       `${field.key} is missing an option definition`,
     );
   }
+});
+
+test("codebook gives ambiguous multi-indication medications a deterministic owner", () => {
+  const domain = TAXONOMY_FIELDS.find((field) => field.key === "clinical_domain");
+  const division = TAXONOMY_FIELDS.find((field) => field.key === "medicine_division");
+
+  assert.equal(CODEBOOK_VERSION, "v2.1");
+  assert.match(domain.help, /multiple common indications/);
+  assert.match(domain.help, /use Medicine, not Biochemistry and Molecular Pharmacology/);
+  assert.match(division.help, /General Internal Medicine and Clinical Innovation/);
+  assert.match(
+    OPTION_DEFINITIONS.medicine_division["General Internal Medicine and Clinical Innovation"],
+    /multiple common indications/,
+  );
 });
 
 test("hard context rules are derived consistently", () => {

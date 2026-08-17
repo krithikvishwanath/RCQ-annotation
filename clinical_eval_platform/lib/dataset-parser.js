@@ -1,5 +1,31 @@
 import { parseCsv } from "./csv.js";
 
+const TEXT_REPLACEMENTS = [
+  ["‚Äö√Ñ√¨", "-"],
+  ["-¬≠", "-"],
+  ["&amp;", "&"],
+  ["&nbsp;", " "],
+  ["‚Äô", "'"],
+  ["‚Äò", "'"],
+  ["‚Äã", ""],
+  ["‚Ä¶", "…"],
+  ["‚Ä¢", "-"],
+  ["‚Äê", "-"],
+  ["‚Äú", "'"],
+  ["‚Äù", "'"],
+  ["¬†", " "],
+  ["‚Äì", "–"],
+  ["¬Æ", "®"],
+  ["\u00a0", " "],
+];
+
+export function normalizeDatasetText(value) {
+  return TEXT_REPLACEMENTS.reduce(
+    (text, [source, replacement]) => text.replaceAll(source, replacement),
+    String(value || ""),
+  );
+}
+
 function normalizeHeader(value) {
   return String(value || "")
     .replace(/^\uFEFF/, "")
@@ -43,7 +69,7 @@ export function parseAnnotationCsv(input) {
   let skippedEmptyRows = 0;
   for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
-    const question = String(row[questionColumn] || "").trim();
+    const question = normalizeDatasetText(row[questionColumn]).trim();
     if (!question) {
       skippedEmptyRows += 1;
       continue;
@@ -56,7 +82,7 @@ export function parseAnnotationCsv(input) {
     questions.push({
       id,
       question,
-      specialty: specialtyColumn >= 0 ? String(row[specialtyColumn] || "").trim() : "",
+      specialty: specialtyColumn >= 0 ? normalizeDatasetText(row[specialtyColumn]).trim() : "",
     });
   }
   if (!questions.length) throw new Error("The annotation dataset contains no usable queries.");

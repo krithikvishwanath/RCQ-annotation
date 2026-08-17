@@ -2,6 +2,7 @@ import { annotationProgress, CODEBOOK_VERSION, normalizeAnnotation, validateAnno
 import { ensureSchema } from "../../../lib/server/schema";
 import { getSql } from "../../../lib/server/db";
 import { checkAccessCode, isUuid, json, publicError } from "../../../lib/server/request";
+import { REQUIRED_REVIEWS_PER_QUERY } from "../../../lib/study-config";
 
 export const runtime = "nodejs";
 
@@ -81,6 +82,7 @@ export async function PUT(request) {
         WHERE benchmark_id = ${datasetId}
           AND question_id = ${questionId}
           AND rater_id = ${sessionId}::uuid
+          AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
         LIMIT 1
       )
       INSERT INTO annotations (
@@ -111,6 +113,7 @@ export async function PUT(request) {
       WHERE benchmark_id = ${datasetId}
         AND question_id = ${questionId}
         AND rater_id = ${sessionId}::uuid
+        AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
     `;
 
     return json(200, {

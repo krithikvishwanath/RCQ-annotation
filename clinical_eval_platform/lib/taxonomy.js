@@ -72,7 +72,7 @@ export const TAXONOMY_FIELDS = [
     group: "classification",
     label: "Owning clinical department",
     prompt: "Which NYULH department ordinarily owns this problem?",
-    help: "Judge only the query's clinical content. Apply the precedence ladder: psychiatry; organic neurologic disease; pregnancy/gynecology; other pediatric care; operative departments; perioperative/pain; ED processes; diagnostic services; radiation oncology; organ-defined territory; Medicine; population health; basic science; forensic; Other.",
+    help: "Judge only the query's clinical content. Apply the precedence ladder: psychiatry; organic neurologic disease; pregnancy/gynecology; other pediatric care; operative departments; perioperative/pain; ED processes; diagnostic services; radiation oncology; organ-defined territory; Medicine; population health; basic science; forensic; Other. For a clinical medication with multiple common indications across services and no stated indication, do not guess: use Medicine, not Biochemistry and Molecular Pharmacology.",
     type: "choice",
     control: "select",
     options: options("clinical_domain", [
@@ -109,7 +109,7 @@ export const TAXONOMY_FIELDS = [
     group: "classification",
     label: "Department of Medicine division",
     prompt: "Which Medicine division owns the problem?",
-    help: "Complete this only when the clinical department is Medicine. Otherwise select Not applicable.",
+    help: "Complete this only when the clinical department is Medicine. Otherwise select Not applicable. For a medication with multiple common indications across divisions and no stated indication, use General Internal Medicine and Clinical Innovation.",
     type: "choice",
     control: "select",
     options: options("medicine_division", [
@@ -448,4 +448,4 @@ export function validateAnnotation(value, { partial = true } = {}) {
   return { ok: errors.length === 0, errors, annotation: normalized };
 }
 
-export const CODEBOOK_VERSION = "v2";
+export const CODEBOOK_VERSION = "v2.1";

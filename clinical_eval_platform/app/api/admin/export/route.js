@@ -2,6 +2,7 @@ import { TAXONOMY_KEYS } from "../../../../lib/taxonomy";
 import { getDataset } from "../../../../lib/server/dataset";
 import { ensureSchema } from "../../../../lib/server/schema";
 import { getSql } from "../../../../lib/server/db";
+import { REQUIRED_REVIEWS_PER_QUERY } from "../../../../lib/study-config";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,13 @@ export async function GET(request) {
       FROM annotations a
       JOIN raters r ON r.id = a.rater_id
       WHERE a.dataset_id = ${dataset.datasetId}
+        AND EXISTS (
+          SELECT 1 FROM question_review_slots s
+          WHERE s.benchmark_id = a.dataset_id
+            AND s.question_id = a.question_id
+            AND s.rater_id = a.rater_id
+            AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
+        )
       ORDER BY a.question_id, r.name
     `;
     const questions = new Map(dataset.questions.map((question) => [String(question.id), question]));

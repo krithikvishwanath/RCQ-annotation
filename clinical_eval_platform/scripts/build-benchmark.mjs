@@ -82,7 +82,7 @@ fs.writeFileSync(
     {
       datasetId,
       generatedAt,
-      codebookVersion: "v2",
+      codebookVersion: "v2.1",
       isExample,
       sourceLabel: isExample ? "Example dataset" : path.basename(sourcePath),
       skippedEmptyRows,
@@ -97,7 +97,7 @@ fs.writeFileSync(
   path.join(dataDirectory, "codebook.json"),
   JSON.stringify(
     {
-      version: "v2",
+      version: "v2.1",
       sha256: crypto.createHash("sha256").update(codebookText).digest("hex"),
       text: codebookText,
     },

@@ -10,11 +10,7 @@ import {
   TAXONOMY_FIELDS,
   TAXONOMY_GROUPS,
 } from "../../lib/taxonomy";
-
-const DEFAULT_ASSIGNMENT_COUNT = (() => {
-  const parsed = Number.parseInt(process.env.NEXT_PUBLIC_DEFAULT_ASSIGNMENT_COUNT || "40", 10);
-  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 500) : 40;
-})();
+import { ADDITIONAL_ASSIGNMENT_COUNT, INITIAL_ASSIGNMENT_COUNT } from "../../lib/study-config";
 
 const STORAGE = {
   sessionId: "rcqTaxonomy.sessionId",
@@ -439,7 +435,7 @@ export default function EvalClient() {
         body: JSON.stringify({
           sessionId: session.sessionId,
           datasetId: dataset.datasetId,
-          count: DEFAULT_ASSIGNMENT_COUNT,
+          count: INITIAL_ASSIGNMENT_COUNT,
           accessCode: session.accessCode || undefined,
         }),
       });
@@ -578,9 +574,15 @@ export default function EvalClient() {
 
   const questions = useMemo(() => {
     if (!dataset || !Array.isArray(questionIds)) return [];
-    const allowed = new Set(questionIds.map(String));
-    const assigned = dataset.questions.filter((question) => allowed.has(String(question.id)));
-    return stableShuffle(assigned, `${dataset.datasetId}:${session?.sessionId || "anonymous"}`);
+    const questionsById = new Map(
+      dataset.questions.map((question) => [String(question.id), question]),
+    );
+    const assigned = questionIds
+      .map((questionId) => questionsById.get(String(questionId)))
+      .filter(Boolean);
+    return session?.mode === "local"
+      ? stableShuffle(assigned, `${dataset.datasetId}:${session.sessionId}`)
+      : assigned;
   }, [dataset, questionIds, session?.sessionId]);
 
   useEffect(() => {
@@ -690,6 +692,9 @@ export default function EvalClient() {
 
   const claimMore = useCallback(async () => {
     if (!session || !dataset || session.mode === "local") return;
+    const requestCount = questions.length
+      ? ADDITIONAL_ASSIGNMENT_COUNT
+      : INITIAL_ASSIGNMENT_COUNT;
     setIsClaiming(true);
     setAssignmentError("");
     try {
@@ -699,14 +704,23 @@ export default function EvalClient() {
         body: JSON.stringify({
           sessionId: session.sessionId,
           datasetId: dataset.datasetId,
-          count: DEFAULT_ASSIGNMENT_COUNT,
+          count: requestCount,
           accessCode: session.accessCode || undefined,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (response.status === 401) return handleUnauthorized();
       if (!response.ok) throw new Error(data?.error || "More queries could not be assigned.");
-      setQuestionIds((data.questionIds || []).map(String));
+      const nextQuestionIds = (data.questionIds || []).map(String);
+      const firstNewId = (data.claimedQuestionIds || []).map(String)[0];
+      setQuestionIds(nextQuestionIds);
+      if (firstNewId) {
+        const firstNewIndex = nextQuestionIds.indexOf(firstNewId);
+        if (firstNewIndex >= 0) setQuestionIndex(firstNewIndex);
+        setActiveGroup(TAXONOMY_GROUPS[0].id);
+        setOpenHelp(null);
+        mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      }
       setRemainingQueries(data.remainingQueries ?? 0);
       initializedNavigationRef.current = true;
     } catch (error) {
@@ -714,7 +728,7 @@ export default function EvalClient() {
     } finally {
       setIsClaiming(false);
     }
-  }, [dataset, handleUnauthorized, session]);
+  }, [dataset, handleUnauthorized, questions.length, session]);
 
   async function copyQuery() {
     if (!currentQuestion) return;
@@ -742,7 +756,7 @@ export default function EvalClient() {
           <p className="eyebrow">Assignments</p>
           <h1>No queries are assigned</h1>
           <p>{assignmentError || (remainingQueries ? "Queries are available to claim." : "This dataset already has the required review coverage.")}</p>
-          {remainingQueries ? <button className="button button--primary" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : `Claim up to ${DEFAULT_ASSIGNMENT_COUNT} queries`}</button> : null}
+          {remainingQueries ? <button className="button button--primary" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : `Claim initial ${INITIAL_ASSIGNMENT_COUNT} queries`}</button> : null}
           <button className="button button--quiet" onClick={() => router.push("/")}>Return home</button>
         </div>
       </main>
@@ -814,7 +828,7 @@ export default function EvalClient() {
             <div className="more-work">
               <strong>Batch complete</strong>
               <span>{remainingQueries ? "More queries are available." : "Required coverage is complete."}</span>
-              {remainingQueries ? <button className="button button--secondary button--full" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : "Claim another batch"}</button> : null}
+              {remainingQueries ? <button className="button button--secondary button--full" disabled={isClaiming} onClick={claimMore}>{isClaiming ? "Assigning…" : `Add ${ADDITIONAL_ASSIGNMENT_COUNT} more queries`}</button> : null}
             </div>
           ) : null}
         </aside>
