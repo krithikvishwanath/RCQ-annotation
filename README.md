@@ -35,6 +35,15 @@ Additional columns, including `phipii`, are preserved as source metadata boundar
 
 Set `ANNOTATION_INPUT` to use another local path. Duplicate IDs and empty datasets fail the build.
 
+To create an exactly reproducible sample without replacement, use the repository sampler. This example replaces the private source file with 100 records selected from its current contents using seed 42. The selected records remain in their original display order. Keep a recovery copy before using `--replace`.
+
+```bash
+cd clinical_eval_platform
+node scripts/sample-dataset.mjs --input ../real_chat_sample.csv --output ../real_chat_sample.csv --count 100 --seed 42 --replace
+```
+
+The command uses a documented Mulberry32 generator and Fisher–Yates shuffle, so the same input order, count, and seed produce the same cohort across runs.
+
 Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries that already have one reviewer. After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice, and each query has at most two independent reviewers.
 
 ## Configuration
