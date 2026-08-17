@@ -1085,6 +1085,10 @@ button:disabled {
   display: flex;
 }
 
+.choice-grid--options {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
 .choice-button {
   min-height: 36px;
   padding: 7px 9px;
@@ -1096,6 +1100,22 @@ button:disabled {
   font-weight: 700;
   line-height: 1.25;
   cursor: pointer;
+}
+
+.choice-grid--options .choice-button {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.choice-grid--options .choice-button--selected::after {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--violet-700);
+  content: "✓";
+  font-size: 11px;
 }
 
 .choice-button:hover {
@@ -1710,6 +1730,10 @@ button:disabled {
   .choice-grid--binary .choice-button {
     flex: 1;
     min-width: 0;
+  }
+
+  .choice-grid--options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .section-navigation {

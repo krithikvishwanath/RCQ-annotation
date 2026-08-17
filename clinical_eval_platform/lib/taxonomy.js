@@ -68,6 +68,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "Which NYULH department ordinarily owns this problem?",
     help: "Judge the content, never the asker's specialty. Apply the precedence ladder: psychiatry; organic neurologic disease; pregnancy/gynecology; other pediatric care; operative departments; perioperative/pain; ED processes; diagnostic services; radiation oncology; organ-defined territory; Medicine; population health; basic science; forensic; Other.",
     type: "choice",
+    control: "select",
     options: options([
       "Anesthesiology, Perioperative Care, and Pain Medicine",
       "Biochemistry and Molecular Pharmacology",
@@ -104,6 +105,7 @@ export const TAXONOMY_FIELDS = [
     prompt: "Which Medicine division owns the problem?",
     help: "Complete this only when the clinical department is Medicine. Otherwise select Not applicable.",
     type: "choice",
+    control: "select",
     options: options([
       "Cardiology",
       "Endocrinology, Diabetes, and Metabolism",

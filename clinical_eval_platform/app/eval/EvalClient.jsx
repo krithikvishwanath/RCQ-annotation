@@ -119,7 +119,7 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
   const disabled =
     field.type === "derived" ||
     (field.key === "medicine_division" && labels.clinical_domain !== "Medicine");
-  const shortOptions = field.options.length <= 5;
+  const useSelect = field.control === "select" || field.options.length > 12;
   const describedBy = helpOpen ? `${field.key}-help` : undefined;
 
   return (
@@ -156,8 +156,8 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
           <span className="lock-dot" aria-hidden="true" />
           {value == null ? "Calculated after fields 8–10" : value === 1 ? "Yes · calculated" : value === 0 ? "No · calculated" : `${value} · calculated`}
         </div>
-      ) : field.type === "binary" || shortOptions ? (
-        <div className={`choice-grid ${field.type === "binary" ? "choice-grid--binary" : ""}`}>
+      ) : !useSelect ? (
+        <div className={`choice-grid ${field.type === "binary" ? "choice-grid--binary" : "choice-grid--options"}`}>
           {field.options.map((option) => (
             <button
               type="button"
@@ -178,6 +178,7 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
           value={value ?? ""}
           aria-label={field.label}
           aria-describedby={describedBy}
+          title="Open the list, or type the first letters to jump to a value"
           onChange={(event) => onChange(event.target.value || null)}
         >
           <option value="" disabled>Select one best value…</option>

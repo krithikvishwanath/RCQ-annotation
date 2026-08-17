@@ -43,6 +43,21 @@ test("codebook exposes exactly 25 unique fields", () => {
   assert.equal(new Set(TAXONOMY_KEYS).size, 25);
 });
 
+test("only long taxonomies use dropdown controls", () => {
+  const dropdownFields = TAXONOMY_FIELDS.filter((field) => field.control === "select");
+
+  assert.deepEqual(
+    dropdownFields.map((field) => field.key),
+    ["clinical_domain", "medicine_division"],
+  );
+  assert.ok(dropdownFields.every((field) => field.options.length > 12));
+  assert.ok(
+    TAXONOMY_FIELDS.filter((field) => field.type !== "derived" && field.control !== "select").every(
+      (field) => field.options.length <= 12,
+    ),
+  );
+});
+
 test("hard context rules are derived consistently", () => {
   const labels = applyDerivedRules({
     ...emptyAnnotation(),
