@@ -6,3 +6,4 @@ clinical_eval_platform/clinical_queries.csv
 clinical_eval_platform/queries.csv
 clinical_eval_platform/query_responses.csv
 clinical_eval_platform/data/
+llm_eval/

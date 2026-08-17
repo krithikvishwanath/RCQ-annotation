@@ -15,6 +15,8 @@ The application lives in `clinical_eval_platform/` and provides:
 - audited assignment release/reassignment controls and analysis-ready CSV export;
 - a private-runtime dataset path for Vercel.
 
+The separate [`llm_eval/`](llm_eval/) package runs the identical 24-field codebook against the lab's self-hosted Barney endpoint from inside BigPurple. It provides token-budgeted asynchronous inference, validation, retry/backoff, exact usage accounting, and resumable Git-ignored JSONL output without coupling cluster access to the Vercel application.
+
 ## Local development
 
 ```bash

@@ -53,6 +53,9 @@ real_chat*.xlsx
 results/
 outputs/
 figures/
+llm_eval/outputs/
+*.jsonl.manifest.json
+*.jsonl.lock
 clinical_tools_extract/data/
 clinical_tools_extract/legacy/
 clinical_eval_platform/data/

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rcq-llm-eval"
+version = "0.1.0"
+description = "Resumable, token-budgeted Barney annotation runner for the RCQ taxonomy."
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.55,<3",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.scripts]
+rcq-llm-eval = "rcq_llm_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
