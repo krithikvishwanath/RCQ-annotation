@@ -63,33 +63,33 @@ export default function ReliabilityClient({ datasetId, initialReliability }) {
       </div>
 
       <div className="reliability-summary" aria-live="polite">
-        <div><span>Comparable query pairs</span><strong>{reliability?.comparableQueries || 0}</strong></div>
-        <div><span>Exact agreement</span><strong>{formatPercent(reliability?.overallAgreement)}</strong></div>
-        <div><span>Mean Cohen’s κ</span><strong>{formatKappa(reliability?.meanKappa)}</strong></div>
+        <div><span>Comparable query trios</span><strong>{reliability?.comparableQueries || 0}</strong></div>
+        <div><span>Unanimous agreement</span><strong>{formatPercent(reliability?.overallAgreement)}</strong></div>
+        <div><span>Mean Fleiss’ κ</span><strong>{formatKappa(reliability?.meanKappa)}</strong></div>
       </div>
 
       {error ? <p className="inline-error">{error}</p> : null}
       {reliability?.excludedForCodebookVersion ? (
-        <p className="inline-warning">{reliability.excludedForCodebookVersion} completed pair(s) were excluded because both reviews were not saved under the active codebook version.</p>
+        <p className="inline-warning">{reliability.excludedForCodebookVersion} fully reviewed query or queries were excluded because all three reviews were not saved under the active codebook version.</p>
       ) : null}
 
       <div className="admin-table-wrap reliability-table-wrap">
         <table className="admin-table reliability-table">
-          <thead><tr><th>Field</th><th>Pairs</th><th>Exact agreement</th><th>Cohen’s κ</th></tr></thead>
+          <thead><tr><th>Field</th><th>Queries</th><th>Unanimous agreement</th><th>Fleiss’ κ</th></tr></thead>
           <tbody>
             {rows.map((field) => (
               <tr key={field.key}>
                 <td><strong>{field.number}. {field.label}</strong><small>{field.key}{field.isDerived ? " · derived (excluded from summary)" : ""}</small></td>
-                <td>{field.pairs}</td>
+                <td>{field.queries}</td>
                 <td>{formatPercent(field.agreement)}</td>
-                <td>{field.kappa == null ? <span title={field.kappaStatus === "no_variation" ? "Kappa is undefined when both reviewers use only one category." : "No completed pairs yet."}>—</span> : field.kappa.toFixed(2)}</td>
+                <td>{field.kappa == null ? <span title={field.kappaStatus === "no_variation" ? "Kappa is undefined when every reviewer uses only one category." : "No fully reviewed queries yet."}>—</span> : field.kappa.toFixed(2)}</td>
               </tr>
             ))}
-            {!rows.length ? <tr><td colSpan="4" className="table-empty">Complete both reviews of a query to begin calculating reliability.</td></tr> : null}
+            {!rows.length ? <tr><td colSpan="4" className="table-empty">Complete all three reviews of a query to begin calculating reliability.</td></tr> : null}
           </tbody>
         </table>
       </div>
-      <p className="admin-card__note">Calculated only from queries with two complete reviews under the active codebook. Exact agreement is pooled across independently annotated forced-choice fields; derived fields are displayed but excluded from both summary measures. Cohen’s κ is unweighted and adjusts each field for chance agreement. A dash means there are no comparable pairs or no category variation yet. Early estimates are unstable, so interpret them alongside the pair count.</p>
+      <p className="admin-card__note">Calculated only from queries with three complete reviews under the active codebook. Unanimous agreement is pooled across independently annotated forced-choice fields; derived fields are displayed but excluded from both summary measures. Fleiss’ κ is unweighted and adjusts each field for chance agreement across three raters. A dash means there are no comparable query trios or no category variation yet. Early estimates are unstable, so interpret them alongside the query count.</p>
     </section>
   );
 }

@@ -4,13 +4,14 @@ A clinician-facing annotation platform for classifying de-identified queries sub
 
 The application lives in `clinical_eval_platform/` and provides:
 
-- breadth-first random assignment with two independent review slots per query;
+- breadth-first random assignment with three independent review slots per query;
 - 40 initial queries plus optional clinician-requested batches of 10;
 - exactly 24 forced-choice taxonomy fields;
 - inline field rules and a searchable codebook;
 - automatic enforcement of all hard consistency rules;
 - debounced server autosave plus browser recovery for interrupted sessions;
 - live admin coverage and field-level inter-rater reliability monitoring;
+- searchable admin query inventory with per-query assignment and completion coverage;
 - audited assignment release/reassignment controls and analysis-ready CSV export;
 - a private-runtime dataset path for Vercel.
 
@@ -44,7 +45,9 @@ node scripts/sample-dataset.mjs --input ../real_chat_sample.csv --output ../real
 
 The command uses a documented Mulberry32 generator and Fisher–Yates shuffle, so the same input order, count, and seed produce the same cohort across runs.
 
-Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries that already have one reviewer. After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice, and each query has at most two independent reviewers.
+Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries with one, then two, assigned reviewers. After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice, and each query has at most three independent reviewers.
+
+Coverage priority is based on assigned review slots, rather than completed annotations, so simultaneous reviewer sign-ins cannot overbook a subset of queries. Stalled assignments can be released or moved from the admin portal. For the 100-query study cohort, full coverage is 300 completed annotations. Deployments upgrading from the earlier two-review design preserve existing work, expand the database constraint safely, and add only each query's missing third slot.
 
 ## Configuration
 
@@ -101,7 +104,7 @@ npm test
 npm run build
 ```
 
-The admin portal is at `/admin`. It reports exact agreement and unweighted Cohen's kappa for every field once both reviews of a query are complete under the active codebook. The metrics refresh automatically every 20 seconds; derived labels are shown but excluded from the aggregate statistics.
+The admin portal is at `/admin`. It reports unanimous agreement and unweighted Fleiss' kappa for every field once all three reviews of a query are complete under the active codebook. The metrics refresh automatically every 20 seconds; derived labels are shown but excluded from the aggregate statistics.
 
 Administrators can release an assignment back to the shared pool or move it to another registered reviewer. Saved annotations are never transferred between reviewer identities: changing an assignment with partial or completed work requires confirmation and permanently deletes that source annotation. Every move or release is recorded in `admin_assignment_events`. Open reviewer workspaces synchronize assignment changes within 30 seconds, while the server rejects saves to removed assignments immediately. Removing all of a reviewer's assignments does not trigger another automatic initial batch; the reviewer must explicitly request the next increment of 10.
 

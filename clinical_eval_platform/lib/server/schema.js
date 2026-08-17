@@ -56,14 +56,49 @@ async function initializeSchema() {
     CREATE TABLE IF NOT EXISTS question_review_slots (
       benchmark_id text NOT NULL,
       question_id text NOT NULL,
-      slot smallint NOT NULL CHECK (slot >= 0 AND slot < 2),
+      slot smallint NOT NULL,
       rater_id uuid REFERENCES raters(id) ON DELETE SET NULL,
       assigned_at timestamptz,
       last_activity_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (benchmark_id, question_id, slot)
+      PRIMARY KEY (benchmark_id, question_id, slot),
+      CONSTRAINT question_review_slots_slot_bounds CHECK (slot >= 0 AND slot < 3)
     )
+  `;
+
+  // Existing studies used the automatically named `slot < 2` constraint.
+  // Replace it exactly once before inserting the third review slots. The new
+  // name makes subsequent cold starts read-only with respect to this migration.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'question_review_slots'::regclass
+          AND conname = 'question_review_slots_slot_check'
+      ) THEN
+        ALTER TABLE question_review_slots
+        DROP CONSTRAINT IF EXISTS question_review_slots_slot_check;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'question_review_slots'::regclass
+          AND conname = 'question_review_slots_slot_bounds'
+      ) THEN
+        BEGIN
+          ALTER TABLE question_review_slots
+          ADD CONSTRAINT question_review_slots_slot_bounds
+          CHECK (slot >= 0 AND slot < 3);
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
+      END IF;
+    END
+    $$
   `;
 
   await sql`

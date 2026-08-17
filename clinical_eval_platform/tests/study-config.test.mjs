@@ -9,5 +9,5 @@ import {
 test("study assignment policy remains fixed", () => {
   assert.equal(INITIAL_ASSIGNMENT_COUNT, 40);
   assert.equal(ADDITIONAL_ASSIGNMENT_COUNT, 10);
-  assert.equal(REQUIRED_REVIEWS_PER_QUERY, 2);
+  assert.equal(REQUIRED_REVIEWS_PER_QUERY, 3);
 });

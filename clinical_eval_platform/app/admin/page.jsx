@@ -5,6 +5,7 @@ import { getSql } from "../../lib/server/db";
 import { loadReliabilityStats } from "../../lib/server/admin-metrics";
 import { REQUIRED_REVIEWS_PER_QUERY } from "../../lib/study-config";
 import AssignmentManager from "./AssignmentManager";
+import QueryInventory from "./QueryInventory";
 import ReliabilityClient from "./ReliabilityClient";
 import ResetClient from "./ResetClient";
 
@@ -18,7 +19,8 @@ export default async function AdminPage() {
   let raters = [];
   let allRaters = [];
   let coverage = [];
-  let reliability = { pairedQueries: 0, comparableQueries: 0, excludedForCodebookVersion: 0, overallAgreement: null, meanKappa: null, fields: [] };
+  let queryInventory = [];
+  let reliability = { raterCount: REQUIRED_REVIEWS_PER_QUERY, fullyReviewedQueries: 0, comparableQueries: 0, excludedForCodebookVersion: 0, overallAgreement: null, meanKappa: null, fields: [] };
   let error = "";
 
   try {
@@ -67,25 +69,44 @@ export default async function AdminPage() {
       ORDER BY MAX(a.updated_at) DESC NULLS LAST, r.name ASC
     `;
 
-    coverage = await sql`
-      WITH per_query AS (
-        SELECT
-          s.question_id,
-          COUNT(DISTINCT a.rater_id) FILTER (WHERE a.is_complete)::int AS completed_reviews
-        FROM question_review_slots s
-        LEFT JOIN annotations a
-          ON a.dataset_id = s.benchmark_id
-          AND a.question_id = s.question_id
-          AND a.rater_id = s.rater_id
-        WHERE s.benchmark_id = ${dataset.datasetId}
-          AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
-        GROUP BY s.question_id
-      )
-      SELECT completed_reviews, COUNT(*)::int AS queries
-      FROM per_query
-      GROUP BY completed_reviews
-      ORDER BY completed_reviews
+    const perQueryCoverage = await sql`
+      SELECT
+        s.question_id,
+        COUNT(*) FILTER (WHERE s.rater_id IS NOT NULL)::int AS assigned_reviews,
+        COUNT(a.rater_id) FILTER (WHERE a.is_complete)::int AS completed_reviews
+      FROM question_review_slots s
+      LEFT JOIN annotations a
+        ON a.dataset_id = s.benchmark_id
+        AND a.question_id = s.question_id
+        AND a.rater_id = s.rater_id
+      WHERE s.benchmark_id = ${dataset.datasetId}
+        AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
+      GROUP BY s.question_id
+      ORDER BY s.question_id
     `;
+
+    const coverageByQuestion = new Map(
+      perQueryCoverage.map((row) => [String(row.question_id), row]),
+    );
+    queryInventory = dataset.questions.map((question, index) => {
+      const status = coverageByQuestion.get(String(question.id));
+      return {
+        id: String(question.id),
+        position: index + 1,
+        question: String(question.question || ""),
+        assignedReviews: status?.assigned_reviews || 0,
+        completedReviews: status?.completed_reviews || 0,
+      };
+    });
+    coverage = Array.from(
+      { length: REQUIRED_REVIEWS_PER_QUERY + 1 },
+      (_, completedReviews) => ({
+        completed_reviews: completedReviews,
+        queries: queryInventory.filter(
+          (query) => query.completedReviews === completedReviews,
+        ).length,
+      }),
+    );
 
     allRaters = await sql`
       SELECT id::text AS rater_id, name
@@ -163,6 +184,11 @@ export default async function AdminPage() {
                 <p className="admin-card__note">Each query has {REQUIRED_REVIEWS_PER_QUERY} independent review slots. Export includes partial rows but marks completion explicitly.</p>
               </section>
             </div>
+
+            <QueryInventory
+              queries={queryInventory}
+              requiredReviews={REQUIRED_REVIEWS_PER_QUERY}
+            />
 
             <ReliabilityClient datasetId={dataset.datasetId} initialReliability={reliability} />
 
