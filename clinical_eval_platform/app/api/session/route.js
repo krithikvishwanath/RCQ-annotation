@@ -1,15 +1,9 @@
 import crypto from "node:crypto";
 import { ensureSchema } from "../../../lib/server/schema";
 import { getSql } from "../../../lib/server/db";
+import { checkAccessCode, json, normalizeName, publicError } from "../../../lib/server/request";
 
 export const runtime = "nodejs";
-
-function json(status, body) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 function isValidName(name) {
   if (typeof name !== "string") return false;
@@ -17,12 +11,6 @@ function isValidName(name) {
   if (!trimmed) return false;
   if (trimmed.length > 80) return false;
   return true;
-}
-
-function normalizeName(name) {
-  return String(name || "")
-    .trim()
-    .replace(/\s+/g, " ");
 }
 
 export async function POST(request) {
@@ -41,10 +29,8 @@ export async function POST(request) {
     return json(400, { error: "Name is required (max 80 chars)." });
   }
 
-  const requiredCode = process.env.EVAL_ACCESS_CODE;
-  if (requiredCode && String(accessCode || "") !== String(requiredCode)) {
-    return json(401, { error: "Invalid access code." });
-  }
+  const access = checkAccessCode(request, { accessCode });
+  if (!access.ok) return json(access.status, { error: access.error });
 
   try {
     await ensureSchema();
@@ -60,12 +46,12 @@ export async function POST(request) {
         SELECT
           r.id::text AS id,
           r.name,
-          COUNT(e.rater_id)::int AS eval_count
+          COUNT(a.rater_id)::int AS annotation_count
         FROM raters r
-        LEFT JOIN evaluations e ON e.rater_id = r.id
+        LEFT JOIN annotations a ON a.rater_id = r.id
         WHERE lower(r.name) = lower(${name})
         GROUP BY r.id, r.name
-        ORDER BY COUNT(e.rater_id) DESC, MAX(r.created_at) DESC
+        ORDER BY COUNT(a.rater_id) DESC, MAX(r.created_at) DESC
         LIMIT 1
       `;
       if (existing.length) {
@@ -81,11 +67,7 @@ export async function POST(request) {
     });
 
     return json(200, result);
-  } catch (err) {
-    console.error(err);
-    const msg = err?.message || "Failed to create session.";
-    const isDb = msg.includes("Database not configured");
-    return json(isDb ? 503 : 500, { error: isDb ? msg : "Failed to create session." });
+  } catch (error) {
+    return publicError(error, "Failed to create session.");
   }
 }
-

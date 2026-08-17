@@ -11,9 +11,18 @@ coverage
 
 query_responses.csv
 query_responses.xlsx
+clinical_queries.csv
+clinical_queries.xlsx
+queries.csv
+queries.xlsx
+real_chats.csv
+real_chats.xlsx
+real_chat*.csv
+real_chat*.xlsx
 ~$*
 
 public/benchmark.json
+public/annotation-set.json
 data/
 
 *.db

@@ -1,263 +1,147 @@
+import Link from "next/link";
+import { getDataset } from "../../lib/server/dataset";
 import { ensureSchema } from "../../lib/server/schema";
 import { getSql } from "../../lib/server/db";
 import ResetClient from "./ResetClient";
-import AssignmentManager from "./AssignmentManager";
-import RaterManager from "./RaterManager";
-import StatsClient from "./StatsClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function AdminPage() {
-  let error = null;
-  let benchmarks = [];
+  let dataset;
+  let summary = { total_slots: 0, assigned_slots: 0, started: 0, complete: 0, annotators: 0 };
   let raters = [];
-  let modelMapping = [];
-  let benchmarkIds = [];
+  let coverage = [];
+  let error = "";
 
   try {
+    dataset = await getDataset();
     await ensureSchema();
     const sql = getSql();
-
-    const ids = await sql`
-      SELECT DISTINCT benchmark_id
-      FROM response_review_slots
-      UNION
-      SELECT DISTINCT benchmark_id
-      FROM evaluations
-      UNION
-      SELECT DISTINCT benchmark_id
-      FROM benchmark_models
-      UNION
-      SELECT benchmark_id
-      FROM benchmark_state
-      ORDER BY benchmark_id DESC
-    `;
-    benchmarkIds = (ids || []).map((r) => r.benchmark_id).filter(Boolean);
-
-    benchmarks = await sql`
+    const summaryRows = await sql`
       SELECT
-        benchmark_id,
-        COUNT(*)::int AS total,
-        SUM(CASE WHEN is_complete THEN 1 ELSE 0 END)::int AS complete
-      FROM evaluations
-      GROUP BY benchmark_id
-      ORDER BY MAX(updated_at) DESC
+        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId}) AS total_slots,
+        (SELECT COUNT(*)::int FROM question_review_slots WHERE benchmark_id = ${dataset.datasetId} AND rater_id IS NOT NULL) AS assigned_slots,
+        (SELECT COUNT(*)::int FROM annotations WHERE dataset_id = ${dataset.datasetId}) AS started,
+        (SELECT COUNT(*)::int FROM annotations WHERE dataset_id = ${dataset.datasetId} AND is_complete) AS complete,
+        (SELECT COUNT(DISTINCT rater_id)::int FROM annotations WHERE dataset_id = ${dataset.datasetId}) AS annotators
     `;
+    summary = summaryRows[0] || summary;
 
     raters = await sql`
       SELECT
-        r.name AS rater_name,
-        e.benchmark_id,
-        COUNT(*)::int AS total,
-        SUM(CASE WHEN e.is_complete THEN 1 ELSE 0 END)::int AS complete
-      FROM evaluations e
-      JOIN raters r ON r.id = e.rater_id
-      GROUP BY r.name, e.benchmark_id
-      ORDER BY r.name ASC
+        r.id::text AS rater_id,
+        r.name,
+        COUNT(DISTINCT s.question_id)::int AS assigned,
+        COUNT(DISTINCT a.question_id)::int AS started,
+        COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_complete)::int AS complete,
+        MAX(a.updated_at) AS last_activity
+      FROM raters r
+      LEFT JOIN question_review_slots s
+        ON s.rater_id = r.id AND s.benchmark_id = ${dataset.datasetId}
+      LEFT JOIN annotations a
+        ON a.rater_id = r.id AND a.dataset_id = ${dataset.datasetId}
+      GROUP BY r.id, r.name
+      HAVING COUNT(DISTINCT s.question_id) > 0 OR COUNT(DISTINCT a.question_id) > 0
+      ORDER BY MAX(a.updated_at) DESC NULLS LAST, r.name ASC
     `;
 
-    modelMapping = await sql`
-      SELECT
-        benchmark_id,
-        model_id,
-        model_name,
-        model_order
-      FROM benchmark_models
-      ORDER BY benchmark_id DESC, model_order ASC
+    coverage = await sql`
+      WITH per_query AS (
+        SELECT
+          s.question_id,
+          COUNT(DISTINCT a.rater_id) FILTER (WHERE a.is_complete)::int AS completed_reviews
+        FROM question_review_slots s
+        LEFT JOIN annotations a
+          ON a.dataset_id = s.benchmark_id
+          AND a.question_id = s.question_id
+          AND a.rater_id = s.rater_id
+        WHERE s.benchmark_id = ${dataset.datasetId}
+        GROUP BY s.question_id
+      )
+      SELECT completed_reviews, COUNT(*)::int AS queries
+      FROM per_query
+      GROUP BY completed_reviews
+      ORDER BY completed_reviews
     `;
-  } catch (e) {
-    error = e?.message || "Failed to load admin data.";
+  } catch (caught) {
+    error = caught?.message || "Administrative data could not be loaded.";
   }
 
-  const defaultBenchmarkId =
-    modelMapping?.[0]?.benchmark_id ||
-    benchmarks?.[0]?.benchmark_id ||
-    benchmarkIds?.[0] ||
-    "";
+  const totalQueries = dataset?.questions?.length || 0;
+  const completionPercent = summary.total_slots
+    ? Math.round((summary.complete / summary.total_slots) * 100)
+    : 0;
 
   return (
-    <div style={{ fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif', padding: 24 }}>
-      <h1 style={{ margin: "0 0 6px", fontSize: 20 }}>ClinBench Admin</h1>
-      <p style={{ margin: "0 0 18px", color: "#4D5567", fontSize: 13 }}>
-        Download consolidated rating data as CSV.
-      </p>
-
-      {error ? (
-        <div
-          style={{
-            padding: "10px 12px",
-            border: "1px solid #F3B1B8",
-            background: "#FDE9EB",
-            color: "#C73D4D",
-            borderRadius: 8,
-            maxWidth: 860,
-            fontSize: 13,
-          }}
-        >
-          {error}
+    <main className="admin-shell">
+      <header className="admin-header">
+        <div className="brand-lockup"><span className="brand-mark">CQ</span><div><strong>Study administration</strong><span>Clinical Query Taxonomy</span></div></div>
+        <div className="admin-header__actions">
+          <Link className="button button--secondary button--compact" href="/">Annotator portal</Link>
+          {dataset ? <a className="button button--primary button--compact" href={`/api/admin/export?datasetId=${encodeURIComponent(dataset.datasetId)}`}>Export CSV</a> : null}
         </div>
-      ) : null}
+      </header>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14 }}>
-        <a
-          href="/api/admin/export"
-          style={{
-            display: "inline-block",
-            padding: "8px 12px",
-            borderRadius: 8,
-            background: "#3B6ED5",
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 700,
-            textDecoration: "none",
-          }}
-        >
-          Download all results (CSV)
-        </a>
-        <span style={{ fontSize: 12, color: "#929AAB" }}>
-          Tip: set `ADMIN_PASSWORD` to protect this page.
-        </span>
+      <div className="admin-content">
+        <div className="admin-title">
+          <div><p className="eyebrow">Operations</p><h1>Annotation study overview</h1><p>Monitor coverage, annotator progress, and export-ready records.</p></div>
+          {dataset ? <div className="dataset-chip"><span>{dataset.isExample ? "Example data" : "Active dataset"}</span><strong>{dataset.datasetId}</strong><small>{totalQueries} queries · {dataset.skippedEmptyRows || 0} empty rows skipped · codebook {dataset.codebookVersion}</small></div> : null}
+        </div>
+
+        {error ? <div className="admin-error"><strong>Setup required</strong><span>{error}</span></div> : null}
+
+        {!error && dataset ? (
+          <>
+            {dataset.isExample ? <div className="admin-warning"><strong>Example dataset is active.</strong> Do not begin data collection until the approved private dataset is connected.</div> : null}
+            <section className="admin-stats" aria-label="Study statistics">
+              <div><span>Queries</span><strong>{totalQueries}</strong><small>in active dataset</small></div>
+              <div><span>Annotators</span><strong>{summary.annotators}</strong><small>with saved work</small></div>
+              <div><span>Assigned slots</span><strong>{summary.assigned_slots}<em> / {summary.total_slots}</em></strong><small>three reviews per query</small></div>
+              <div><span>Completed reviews</span><strong>{summary.complete}<em> / {summary.total_slots}</em></strong><small>{completionPercent}% complete</small></div>
+            </section>
+
+            <div className="admin-grid">
+              <section className="admin-card admin-card--wide">
+                <div className="admin-card__heading"><div><p className="eyebrow">Annotators</p><h2>Progress by reviewer</h2></div><span>{raters.length} active</span></div>
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead><tr><th>Annotator</th><th>Assigned</th><th>Started</th><th>Complete</th><th>Last activity</th></tr></thead>
+                    <tbody>
+                      {raters.map((rater) => (
+                        <tr key={rater.rater_id}>
+                          <td><strong>{rater.name}</strong><small>{rater.rater_id.slice(0, 8)}</small></td>
+                          <td>{rater.assigned}</td><td>{rater.started}</td><td><span className="table-complete">{rater.complete}</span></td>
+                          <td>{rater.last_activity ? new Date(rater.last_activity).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "Not started"}</td>
+                        </tr>
+                      ))}
+                      {!raters.length ? <tr><td colSpan="5" className="table-empty">No annotators have been assigned yet.</td></tr> : null}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="admin-card">
+                <div className="admin-card__heading"><div><p className="eyebrow">Reliability</p><h2>Query coverage</h2></div></div>
+                <div className="coverage-list">
+                  {[0, 1, 2, 3].map((reviewCount) => {
+                    const found = coverage.find((row) => row.completed_reviews === reviewCount);
+                    const count = found?.queries || 0;
+                    return <div key={reviewCount}><span>{reviewCount} completed {reviewCount === 1 ? "review" : "reviews"}</span><strong>{count}</strong><div><i style={{ width: totalQueries ? `${(count / totalQueries) * 100}%` : "0%" }} /></div></div>;
+                  })}
+                </div>
+                <p className="admin-card__note">Each query has three independent review slots. Export includes partial rows but marks completion explicitly.</p>
+              </section>
+            </div>
+
+            <section className="admin-card danger-card">
+              <div className="admin-card__heading"><div><p className="eyebrow">Danger zone</p><h2>Reset active dataset</h2></div></div>
+              <ResetClient datasetId={dataset.datasetId} />
+            </section>
+          </>
+        ) : null}
       </div>
-
-      {!error ? (
-        <StatsClient benchmarkIds={benchmarkIds} defaultBenchmarkId={defaultBenchmarkId} />
-      ) : null}
-
-      {modelMapping.length ? (
-        <div style={{ marginTop: 22, maxWidth: 980 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14 }}>Model mapping (blinding key)</h2>
-          <div style={{ border: "1px solid #D5D8DF", borderRadius: 10, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead style={{ background: "#F0F1F4" }}>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Benchmark ID
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Model ID
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Source
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {modelMapping.map((m) => (
-                  <tr key={`${m.benchmark_id}-${m.model_id}`}>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF", color: "#4D5567" }}>
-                      {m.benchmark_id}
-                    </td>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF", fontWeight: 800 }}>
-                      {m.model_id}
-                    </td>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>{m.model_name}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {benchmarks.length ? (
-        <div style={{ marginTop: 22, maxWidth: 980 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14 }}>Benchmarks</h2>
-          <div style={{ border: "1px solid #D5D8DF", borderRadius: 10, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead style={{ background: "#F0F1F4" }}>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Benchmark ID
-                  </th>
-                  <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Complete
-                  </th>
-                  <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Total
-                  </th>
-                  <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Export
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {benchmarks.map((b) => (
-                  <tr key={b.benchmark_id}>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>{b.benchmark_id}</td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #D5D8DF" }}>
-                      {b.complete}
-                    </td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #D5D8DF" }}>
-                      {b.total}
-                    </td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #D5D8DF" }}>
-                      <a href={`/api/admin/export?benchmarkId=${encodeURIComponent(b.benchmark_id)}`}>CSV</a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {raters.length ? (
-        <div style={{ marginTop: 22, maxWidth: 980 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14 }}>Rater progress</h2>
-          <div style={{ border: "1px solid #D5D8DF", borderRadius: 10, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead style={{ background: "#F0F1F4" }}>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Rater
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Benchmark ID
-                  </th>
-                  <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Complete
-                  </th>
-                  <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {raters.map((r, i) => (
-                  <tr key={`${r.rater_name}-${r.benchmark_id}-${i}`}>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>{r.rater_name}</td>
-                    <td style={{ padding: "10px 12px", borderBottom: "1px solid #D5D8DF" }}>{r.benchmark_id}</td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #D5D8DF" }}>
-                      {r.complete}
-                    </td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #D5D8DF" }}>
-                      {r.total}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {!error ? (
-        <RaterManager />
-      ) : null}
-
-      {!error ? (
-        <AssignmentManager
-          benchmarkIds={benchmarkIds}
-          defaultBenchmarkId={defaultBenchmarkId}
-        />
-      ) : null}
-
-      <div style={{ marginTop: 22, maxWidth: 980 }}>
-        <ResetClient benchmarks={benchmarks} benchmarkIds={benchmarkIds} />
-      </div>
-    </div>
+    </main>
   );
 }
-

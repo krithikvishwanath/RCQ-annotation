@@ -1,0 +1,8 @@
+real_chat*.csv
+real_chats.csv
+clinical_eval_platform/real_chat*.csv
+clinical_eval_platform/real_chats.csv
+clinical_eval_platform/clinical_queries.csv
+clinical_eval_platform/queries.csv
+clinical_eval_platform/query_responses.csv
+clinical_eval_platform/data/

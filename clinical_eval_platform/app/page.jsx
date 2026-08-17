@@ -3,25 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const C = {
-  bg: "#F3F4F6",
-  surface: "#FFFFFF",
-  bdr: "#D5D8DF",
-  ink: "#1C2029",
-  inkS: "#4D5567",
-  inkM: "#929AAB",
-  ac: "#3B6ED5",
-  acL: "#E6EDFB",
-  ok: "#1A8F62",
-  okL: "#E4F6EE",
-  dn: "#C73D4D",
-  dnL: "#FDE9EB",
+const STORAGE = {
+  sessionId: "rcqTaxonomy.sessionId",
+  name: "rcqTaxonomy.name",
+  accessCode: "rcqTaxonomy.accessCode",
+  mode: "rcqTaxonomy.mode",
 };
 
-const serif = 'Georgia, "Times New Roman", serif';
-const sans = '"Segoe UI", system-ui, -apple-system, sans-serif';
-
-function safeGet(key) {
+function storageGet(key) {
   try {
     return localStorage.getItem(key);
   } catch {
@@ -29,19 +18,19 @@ function safeGet(key) {
   }
 }
 
-function safeSet(key, val) {
+function storageSet(key, value) {
   try {
-    localStorage.setItem(key, val);
+    localStorage.setItem(key, value);
   } catch {
-    // ignore
+    // Private browsing can disable storage. The active page still remains usable.
   }
 }
 
-function safeRemove(key) {
+function storageRemove(key) {
   try {
     localStorage.removeItem(key);
   } catch {
-    // ignore
+    // Ignore unavailable storage.
   }
 }
 
@@ -51,235 +40,150 @@ export default function HomePage() {
   const [accessCode, setAccessCode] = useState("");
   const [existing, setExisting] = useState(null);
   const [error, setError] = useState("");
-  const [isLoading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const sessionId = safeGet("clinbench.sessionId");
-    const existingName = safeGet("clinbench.name");
-    const savedCode = safeGet("clinbench.accessCode");
-    if (sessionId && existingName) {
-      setExisting({ sessionId, name: existingName });
-    }
-    if (savedCode) setAccessCode(savedCode);
+    const sessionId = storageGet(STORAGE.sessionId);
+    const savedName = storageGet(STORAGE.name);
+    if (sessionId && savedName) setExisting({ sessionId, name: savedName });
+    setAccessCode(storageGet(STORAGE.accessCode) || "");
   }, []);
 
-  async function start() {
+  async function start(event) {
+    event?.preventDefault();
     setError("");
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError("Please enter your name.");
+    const normalizedName = name.trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      setError("Enter your annotator name or study ID.");
       return;
     }
-    setLoading(true);
+
+    setIsLoading(true);
     try {
-      const res = await fetch("/api/session", {
+      const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed, accessCode: accessCode.trim() || undefined }),
+        body: JSON.stringify({
+          name: normalizedName,
+          accessCode: accessCode.trim() || undefined,
+        }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Failed to start session.");
+      const data = await response.json().catch(() => ({}));
 
-      safeSet("clinbench.sessionId", data.sessionId);
-      safeSet("clinbench.name", data.name);
-      if (accessCode.trim()) safeSet("clinbench.accessCode", accessCode.trim());
+      if (response.status === 503 && process.env.NODE_ENV !== "production") {
+        const localSessionId = crypto.randomUUID();
+        storageSet(STORAGE.sessionId, localSessionId);
+        storageSet(STORAGE.name, normalizedName);
+        storageSet(STORAGE.mode, "local");
+        router.push("/eval");
+        return;
+      }
+      if (!response.ok) throw new Error(data?.error || "Unable to start your session.");
+
+      storageSet(STORAGE.sessionId, data.sessionId);
+      storageSet(STORAGE.name, data.name);
+      storageSet(STORAGE.mode, "server");
+      if (accessCode.trim()) storageSet(STORAGE.accessCode, accessCode.trim());
       setExisting({ sessionId: data.sessionId, name: data.name });
       router.push("/eval");
-    } catch (e) {
-      setError(e?.message || "Failed to start.");
+    } catch (caught) {
+      setError(caught?.message || "Unable to start your session.");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   }
 
-  function reset() {
-    safeRemove("clinbench.sessionId");
-    safeRemove("clinbench.name");
-    safeRemove("clinbench.accessCode");
+  function switchAnnotator() {
+    Object.values(STORAGE).forEach(storageRemove);
     setExisting(null);
     setName("");
+    setAccessCode("");
     setError("");
   }
 
-  const fld = {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: `1px solid ${C.bdr}`,
-    fontFamily: sans,
-    fontSize: 13,
-    color: C.ink,
-    outline: "none",
-  };
-
   return (
-    <div
-      style={{
-        fontFamily: sans,
-        background: C.bg,
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-    >
-      <div
-        style={{
-          background: C.surface,
-          borderRadius: 14,
-          padding: "34px 30px",
-          maxWidth: 440,
-          width: "100%",
-          border: `1px solid ${C.bdr}`,
-          boxShadow: "0 2px 16px rgba(0,0,0,0.04)",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              background: `linear-gradient(135deg,${C.ac},#6B3FA0)`,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontWeight: 900,
-              fontSize: 16,
-              marginBottom: 12,
-            }}
-          >
-            Rx
+    <main className="welcome-shell">
+      <section className="welcome-story" aria-labelledby="welcome-title">
+        <div className="brand-lockup brand-lockup--light">
+          <span className="brand-mark" aria-hidden="true">CQ</span>
+          <span>Clinical Query Taxonomy</span>
+        </div>
+        <p className="eyebrow eyebrow--light">Clinician annotation study · Codebook v1</p>
+        <h1 id="welcome-title">Turn real clinical questions into a reliable taxonomy.</h1>
+        <p className="welcome-lede">
+          Classify de-identified queries across 25 forced-choice fields. Your work saves as you go,
+          and the exact decision rules stay available beside every judgement.
+        </p>
+
+        <div className="principle-list" aria-label="Annotation principles">
+          <div className="principle-item">
+            <span className="principle-number">01</span>
+            <div><strong>Read literally</strong><span>Use only what the query states. Do not fill in hidden clinical facts.</span></div>
           </div>
-          <h1 style={{ fontFamily: serif, fontSize: 22, margin: "0 0 6px", fontWeight: 700 }}>
-            Clinical Evaluation Portal
-          </h1>
-          <p style={{ margin: 0, fontSize: 12, color: C.inkM, lineHeight: 1.5 }}>
-            De-identified clinical questions. Ratings are saved automatically as you go.
+          <div className="principle-item">
+            <span className="principle-number">02</span>
+            <div><strong>Judge independently</strong><span>One field does not determine another unless a hard rule says so.</span></div>
+          </div>
+          <div className="principle-item">
+            <span className="principle-number">03</span>
+            <div><strong>Choose one best value</strong><span>If genuinely torn, use the most literal reading of the query.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="signin-panel" aria-label="Annotator sign in">
+        <div className="signin-card">
+          <div className="signin-heading">
+            <p className="eyebrow">Annotation workspace</p>
+            <h2>{existing ? "Welcome back" : "Begin a session"}</h2>
+            <p>{existing ? "Continue exactly where you left off." : "Use the identifier provided by the study team."}</p>
+          </div>
+
+          {existing ? (
+            <div className="resume-card">
+              <span className="resume-label">Current annotator</span>
+              <strong>{existing.name}</strong>
+              <button className="button button--primary button--full" onClick={() => router.push("/eval")}>Resume annotation</button>
+              <button className="button button--quiet button--full" onClick={switchAnnotator}>Use a different annotator</button>
+            </div>
+          ) : (
+            <form onSubmit={start} noValidate>
+              <label className="field-label" htmlFor="annotator-name">Annotator name or study ID</label>
+              <input
+                id="annotator-name"
+                className="text-input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g., Rater 07"
+                maxLength={80}
+                autoComplete="name"
+                autoFocus
+              />
+
+              <label className="field-label" htmlFor="access-code">Access code <span>if provided</span></label>
+              <input
+                id="access-code"
+                className="text-input"
+                type="password"
+                value={accessCode}
+                onChange={(event) => setAccessCode(event.target.value)}
+                placeholder="Optional"
+                autoComplete="current-password"
+              />
+
+              {error ? <div className="alert alert--error" role="alert">{error}</div> : null}
+
+              <button className="button button--primary button--full button--large" disabled={isLoading}>
+                {isLoading ? "Starting…" : "Enter workspace"}
+              </button>
+            </form>
+          )}
+
+          <p className="privacy-note">
+            Do not enter patient information in notes. Query text is provided by the study dataset and should already be de-identified.
           </p>
         </div>
-
-        {existing ? (
-          <div
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: `1px solid ${C.ok}30`,
-              background: C.okL,
-              color: C.ok,
-              fontSize: 12,
-              fontWeight: 600,
-              marginBottom: 14,
-            }}
-          >
-            Continue as <b>{existing.name}</b>
-            <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-              <button
-                onClick={() => router.push("/eval")}
-                style={{
-                  flex: 1,
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: C.ac,
-                  color: "#fff",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  fontFamily: sans,
-                  fontSize: 12,
-                }}
-              >
-                Resume
-              </button>
-              <button
-                onClick={reset}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${C.bdr}`,
-                  background: "#fff",
-                  color: C.inkS,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: sans,
-                  fontSize: 12,
-                }}
-              >
-                Switch
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 10, fontWeight: 800, color: C.inkS, marginBottom: 3 }}>
-            Name
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Dr. Jane Smith"
-            style={fld}
-            autoComplete="name"
-          />
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontSize: 10, fontWeight: 800, color: C.inkS, marginBottom: 3 }}>
-            Access code (if provided)
-          </label>
-          <input
-            value={accessCode}
-            onChange={(e) => setAccessCode(e.target.value)}
-            placeholder="Optional"
-            style={fld}
-            autoComplete="off"
-          />
-        </div>
-
-        {error ? (
-          <div
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: `1px solid ${C.dn}35`,
-              background: C.dnL,
-              color: C.dn,
-              fontSize: 12,
-              fontWeight: 600,
-              marginBottom: 12,
-            }}
-          >
-            {error}
-          </div>
-        ) : null}
-
-        <button
-          onClick={start}
-          disabled={isLoading}
-          style={{
-            width: "100%",
-            padding: "11px 12px",
-            borderRadius: 9,
-            border: "none",
-            background: isLoading ? C.bdr : C.ac,
-            color: "#fff",
-            fontWeight: 900,
-            fontSize: 13,
-            fontFamily: sans,
-            cursor: isLoading ? "not-allowed" : "pointer",
-          }}
-        >
-          {isLoading ? "Starting..." : "Start evaluating"}
-        </button>
-
-        <div style={{ marginTop: 12, fontSize: 10.5, color: C.inkM, lineHeight: 1.5 }}>
-          Keyboard shortcuts: <b>1-4</b> for Likert scores, <b>Y/N</b> for binary, <b>←/→</b> navigation.
-        </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
-

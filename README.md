@@ -1,64 +1,18 @@
-# Clinical LLM Benchmarks
+# Clinical Query Taxonomy
 
-Code accompanying the paper:
+A clinician-facing annotation platform for classifying de-identified queries submitted to a hospital LLM wrapper during routine care. The interface and server validation implement the 25-field **Clinician Query Annotation Codebook v1** in [`prompt.txt`](prompt.txt).
 
-**General-purpose large language models outperform specialized clinical AI tools on medical benchmarks**
-*Nature Medicine* (2026). https://doi.org/10.1038/s41591-026-04431-5
+The application lives in `clinical_eval_platform/` and provides:
 
-## Repository Layout
+- query-level assignment with three independent review slots;
+- exactly 25 forced-choice taxonomy fields;
+- inline field rules and a searchable codebook;
+- automatic enforcement of all hard consistency rules;
+- debounced server autosave plus browser recovery for interrupted sessions;
+- admin coverage monitoring and analysis-ready CSV export;
+- a private-runtime dataset path for Vercel.
 
-```text
-clinical_tools_extract/
-  evaluation_pipeline.py       # model generation, MedQA scoring, HealthBench scoring
-  rerun_failed_healthbench.py   # helper for targeted HealthBench regrading
-  requirements.txt             # Python dependencies for the pipeline
-
-clinical_eval_platform/
-  app/                          # Next.js blinded clinician rating interface
-  scripts/build-benchmark.mjs   # converts a local response matrix into blinded app JSON
-  lib/server/                   # Postgres schema and persistence helpers
-  .env.example                  # deployment/runtime configuration template
-```
-
-## Benchmark Pipeline
-
-Install the Python dependencies:
-
-```bash
-cd clinical_tools_extract
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python evaluation_pipeline.py --help
-```
-
-
-Set API keys: 
-
-```bash
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
-GOOGLE_API_KEY=
-```
-
-Example frontier-model generation command:
-
-```bash
-python evaluation_pipeline.py generate \
-  --input data/benchmarks/medqa_500.jsonl \
-  --model openai-gpt-5-2 \
-  --output data/runs/openai-gpt-5-2/medqa/raw.jsonl \
-  --enable-search \
-  --allow-error-rows \
-  --checkpoint-every 25
-```
-
-The manuscript used deterministic generation (`temperature=0.0`, seed `62` when supported) with search enabled for the frontier API models. OpenEvidence, UpToDate Expert AI, and Google Search AI Overview were collected outside the public repo and should be brought in here only as pre-collected local outputs referenced from `data/runs/model_registry.json`.
-
-## Clinician Review Platform
-
-The blinded review app lives in `clinical_eval_platform/`.
+## Local development
 
 ```bash
 cd clinical_eval_platform
@@ -67,35 +21,56 @@ cp .env.example .env
 npm run dev
 ```
 
-For RCQ-style review, provide a local `query_responses.csv` or `query_responses.xlsx` with a query column and one response column per model. In the manuscript configuration that means six response columns: GPT-5.2, Gemini 3.1 Pro Preview, Claude Opus 4.6, OpenEvidence, UpToDate Expert AI, and Google Search AI Overview. The build step creates:
+The app uses four source-controlled example queries when no local data file exists. Add `real_chats.csv` at the repository root or inside `clinical_eval_platform/` to use the study dataset locally. It is explicitly ignored by Git at both levels.
 
-- `public/benchmark.json`: blinded rater-facing benchmark bundle.
-- `data/model_map.json`: admin-only mapping from blinded model IDs to real model names.
-- `data/benchmark_questions.json`: question index used for assignment sampling.
+The input is UTF-8 CSV. Recognized columns:
 
-These generated files are ignored because they may contain private clinical queries or model outputs.
+- query text (required): `question`, `query`, `prompt`, `query_text`, `chat`, `message`, `user_message`, or `text`;
+- stable ID (recommended): `id`, `index`, `row_index`, `query_id`, `question_id`, or `chat_id`;
+- asker specialty (optional): `specialty`, `speciality`, `asker_specialty`, `clinician_specialty`, or `role`.
+
+Additional columns, including `phipii`, are preserved as source metadata boundaries and do not determine whether a non-empty query is imported. Empty query rows are skipped and counted without logging row contents.
+
+Set `ANNOTATION_INPUT` to use another local path. Duplicate IDs and empty datasets fail the build.
+
+## Configuration
+
+Copy `clinical_eval_platform/.env.example` and set:
+
+- `DATABASE_URL` (or `POSTGRES_URL`) for Postgres persistence;
+- `EVAL_ACCESS_CODE` for annotator/API access;
+- `ADMIN_PASSWORD` (and optionally `ADMIN_USER`) for the admin portal;
+- `NEXT_PUBLIC_DEFAULT_ASSIGNMENT_COUNT` for assignment batch size.
+
+Production fails closed when either access code or admin password is missing. Local development can enter a clearly labeled browser-only demo mode when Postgres is absent.
+
+## Unlisted access
+
+The site ships with three crawler controls: page-level `noindex`/`nofollow` metadata, a disallow-all `robots.txt`, and an `X-Robots-Tag` header on every route. A direct link still works, but compliant search engines should not index or follow the site.
+
+Crawler directives are not access control. For a link that can be revoked, enable Vercel Authentication under **Project → Settings → Deployment Protection** and create a Shareable Link for external annotators. Keep the application access code enabled as a second gate for the query APIs.
+
+## Private Vercel dataset
+
+Do not commit or place `real_chats.csv` in `public/`. Both Git and Vercel ignore files explicitly exclude the raw dataset and generated server data. For Vercel, create a **Private Blob** store, upload the approved dataset, and set its private URL as `ANNOTATION_BLOB_URL`. Connecting the store supplies `BLOB_READ_WRITE_TOKEN`; the server retrieves the CSV at runtime and never exposes the Blob URL or token to the browser.
+
+```bash
+vercel blob create-store rcq-annotation-data --access private --region iad1
+vercel blob put ../real_chats.csv --pathname datasets/real_chats.csv --access private
+```
+
+Before storing any PHI, obtain institutional privacy/security approval and ensure the hosting plan, BAA, data residency, access controls, and connected database are all approved for that data. A private object URL alone is not a HIPAA compliance program. Prefer an institution-managed source if the dataset has not been formally de-identified.
+
+## Validation
+
+```bash
+cd clinical_eval_platform
+npm test
+npm run build
+```
+
+The admin portal is at `/admin`. Its export includes query text, optional specialty, all 25 labels in codebook order, completion state, notes, and audit timestamps.
 
 ## License
 
-The source code in this repository is licensed under GNU AGPL v3.
-
-Unless otherwise noted, non-code materials such as figures, diagrams, and documentation are licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
-
-Please cite the associated paper if you use this repository in academic work.
-
-## Citation
-
-If you use this code, please cite:
-
-> Vishwanath, K., Alyakin, A., Ghosh, M., Hage, A., Neifert, S. N., Orillac, C., Mandelberg, N. J., Khan, H. A., Lee, J. V., Yao, J. J., Small, W. R., Varma, A., Hewitt, D. B., Aphinyanaphongs, Y., Alber, D. A. & Oermann, E. K. General-purpose large language models outperform specialized clinical AI tools on medical benchmarks. *Nature Medicine* (2026). https://doi.org/10.1038/s41591-026-04431-5
-
-```bibtex
-@article{vishwanath2026general,
-  title   = {General-purpose large language models outperform specialized clinical AI tools on medical benchmarks},
-  author  = {Vishwanath, Krithik and Alyakin, Anton and Ghosh, Mrigayu and Hage, Ali and Neifert, Sean N. and Orillac, Cordelia and Mandelberg, Nataniel J. and Khan, Hammad A. and Lee, Jin Vivian and Yao, Jie J. and Small, William Robert and Varma, Aakaash and Hewitt, D. Brock and Aphinyanaphongs, Yindalon and Alber, Daniel Alexander and Oermann, Eric Karl},
-  journal = {Nature Medicine},
-  year    = {2026},
-  doi     = {10.1038/s41591-026-04431-5},
-  url     = {https://doi.org/10.1038/s41591-026-04431-5}
-}
-```
+GNU AGPL v3. See [`LICENSE`](LICENSE).

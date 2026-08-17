@@ -1,129 +1,91 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const XLSX = require("xlsx");
-
-function normHeader(h) {
-  return String(h || "")
-    .replace(/^\uFEFF/, "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
+import { parseAnnotationCsv } from "../lib/dataset-parser.js";
 
 const projectRoot = process.cwd();
-const preferredSrcPath = path.join(projectRoot, "query_responses.csv");
-const legacySrcPath = path.join(projectRoot, "query_responses.xlsx");
-const srcPath = fs.existsSync(preferredSrcPath)
-  ? preferredSrcPath
-  : fs.existsSync(legacySrcPath)
-    ? legacySrcPath
-    : preferredSrcPath;
-const outDir = path.join(projectRoot, "public");
-const outPath = path.join(outDir, "benchmark.json");
-const mapDir = path.join(projectRoot, "data");
-const mapPath = path.join(mapDir, "model_map.json");
-const questionsPath = path.join(mapDir, "benchmark_questions.json");
+const configuredInput = String(process.env.ANNOTATION_INPUT || "").trim();
+const candidates = [
+  configuredInput,
+  "real_chats.csv",
+  "real_chat_sample.csv",
+  "../real_chats.csv",
+  "../real_chat_sample.csv",
+  "clinical_queries.csv",
+  "queries.csv",
+  "query_responses.csv",
+]
+  .filter(Boolean)
+  .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(projectRoot, candidate)));
 
-if (!fs.existsSync(srcPath)) {
-  console.error(`Missing ${preferredSrcPath} (or legacy ${legacySrcPath})`);
+let sourcePath = candidates.find((candidate) => fs.existsSync(candidate));
+let isExample = false;
+if (!sourcePath) {
+  sourcePath = path.join(projectRoot, "examples", "queries.csv");
+  isExample = true;
+} else if (/sample/i.test(path.basename(sourcePath))) {
+  isExample = true;
+}
+
+if (!fs.existsSync(sourcePath)) {
+  console.error(
+    "No annotation input found. Add real_chats.csv or clinical_queries.csv, or set ANNOTATION_INPUT.",
+  );
   process.exit(1);
 }
 
-const srcBuf = fs.readFileSync(srcPath);
-const benchmarkId = crypto
+function ensureDir(directory) {
+  fs.mkdirSync(directory, { recursive: true });
+}
+
+const sourceBuffer = fs.readFileSync(sourcePath);
+let parsed;
+try {
+  parsed = parseAnnotationCsv(sourceBuffer.toString("utf8"));
+} catch (error) {
+  console.error(error?.message || "The annotation dataset could not be parsed.");
+  process.exit(1);
+}
+const { questions, skippedEmptyRows } = parsed;
+
+const datasetId = crypto
   .createHash("sha256")
-  .update(srcBuf)
+  .update(sourceBuffer)
+  .update("clinician-query-codebook-v1")
   .digest("hex")
   .slice(0, 16);
 
-const ext = path.extname(srcPath).toLowerCase();
-const wb =
-  ext === ".csv"
-    ? XLSX.read(srcBuf.toString("utf8").replace(/^\uFEFF/, ""), { type: "string" })
-    : XLSX.read(srcBuf, { type: "buffer" });
-if (!wb.SheetNames?.length) {
-  console.error(`No sheets found in ${path.basename(srcPath)}`);
+const generatedAt = new Date().toISOString();
+const dataDirectory = path.join(projectRoot, "data");
+ensureDir(dataDirectory);
+
+const codebookPath = [
+  process.env.CODEBOOK_INPUT,
+  path.join(projectRoot, "..", "prompt.txt"),
+  path.join(projectRoot, "prompt.txt"),
+]
+  .filter(Boolean)
+  .find((candidate) => fs.existsSync(candidate));
+if (!codebookPath) {
+  console.error("The verbatim codebook prompt.txt could not be found.");
+  process.exit(1);
+}
+const codebookText = fs.readFileSync(codebookPath, "utf8").replace(/^\uFEFF/, "").trim();
+if (!codebookText.includes("Clinician Query Annotation Codebook") || !codebookText.includes("Output format")) {
+  console.error("prompt.txt does not appear to contain the Clinician Query Annotation Codebook.");
   process.exit(1);
 }
 
-const ws = wb.Sheets[wb.SheetNames[0]];
-const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-if (!aoa.length) {
-  console.error("Empty sheet");
-  process.exit(1);
-}
-
-const headerRow = aoa[0] || [];
-const headers = headerRow.map((h) => String(h || "").trim());
-const headersNorm = headers.map(normHeader);
-
-const idCol = headersNorm.findIndex((h) =>
-  ["index", "id", "query id", "query_id", "question id", "question_id"].includes(h),
-);
-const questionCol = headersNorm.findIndex((h) =>
-  ["question", "query", "prompt"].includes(h),
-);
-
-if (questionCol === -1) {
-  console.error(`Could not find a Question column. Headers: ${JSON.stringify(headers)}`);
-  process.exit(1);
-}
-
-const responseCols = headers
-  .map((h, i) => ({ key: h, i }))
-  .filter(({ i, key }) => {
-    if (i === questionCol) return false;
-    if (i === idCol) return false;
-    if (!String(key || "").trim()) return false;
-    return true;
-  });
-
-const modelMap = responseCols.map((c, idx) => ({
-  id: `Model_${String.fromCharCode(65 + idx)}`,
-  name: String(c.key || "").trim(),
-  colIndex: c.i,
-}));
-
-const questions = [];
-for (let r = 1; r < aoa.length; r++) {
-  const row = aoa[r] || [];
-  const rawId = idCol >= 0 ? row[idCol] : r;
-  const query = String(row[questionCol] || "").trim();
-  if (!query) continue;
-
-  const responses = modelMap
-    .map((m) => ({
-      key: m.id, // anonymized for rater blinding
-      text: String(row[m.colIndex] || "").trim(),
-    }))
-    .filter((x) => x.text);
-
-  if (!responses.length) continue;
-
-  questions.push({
-    id: String(rawId || "").trim() || `Q${String(questions.length + 1).padStart(3, "0")}`,
-    query,
-    responses,
-  });
-}
-
-ensureDir(outDir);
-ensureDir(mapDir);
 fs.writeFileSync(
-  outPath,
+  path.join(dataDirectory, "annotation_set.json"),
   JSON.stringify(
     {
-      benchmarkId,
-      generatedAt: new Date().toISOString(),
-      models: modelMap.map((m) => m.id),
+      datasetId,
+      generatedAt,
+      codebookVersion: "v1",
+      isExample,
+      sourceLabel: isExample ? "Example dataset" : path.basename(sourcePath),
+      skippedEmptyRows,
       questions,
     },
     null,
@@ -132,12 +94,12 @@ fs.writeFileSync(
 );
 
 fs.writeFileSync(
-  mapPath,
+  path.join(dataDirectory, "codebook.json"),
   JSON.stringify(
     {
-      benchmarkId,
-      generatedAt: new Date().toISOString(),
-      models: modelMap.map((m) => ({ id: m.id, name: m.name })),
+      version: "v1",
+      sha256: crypto.createHash("sha256").update(codebookText).digest("hex"),
+      text: codebookText,
     },
     null,
     2,
@@ -145,21 +107,5 @@ fs.writeFileSync(
 );
 
 console.log(
-  `Wrote ${path.relative(projectRoot, outPath)} (${questions.length} questions, ${modelMap.length} models, benchmarkId=${benchmarkId})`,
+  `Prepared ${questions.length} queries from ${isExample ? "the example dataset" : path.basename(sourcePath)}; skipped ${skippedEmptyRows} rows without query text (datasetId=${datasetId}).`,
 );
-console.log(`Wrote ${path.relative(projectRoot, mapPath)} (admin-only model mapping)`);
-
-fs.writeFileSync(
-  questionsPath,
-  JSON.stringify(
-    {
-      benchmarkId,
-      generatedAt: new Date().toISOString(),
-      questions: questions.map((q) => q.id),
-    },
-    null,
-    2,
-  ),
-);
-console.log(`Wrote ${path.relative(projectRoot, questionsPath)} (question index for sampling)`);
-

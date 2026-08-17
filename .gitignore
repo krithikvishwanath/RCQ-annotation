@@ -42,6 +42,14 @@ pnpm-debug.log*
 
 # Local benchmark data, generated model outputs, and reviewer exports
 data/
+real_chats.csv
+real_chats.xlsx
+**/real_chats.csv
+**/real_chats.xlsx
+real_chat*.csv
+real_chat*.xlsx
+**/real_chat*.csv
+**/real_chat*.xlsx
 results/
 outputs/
 figures/
@@ -49,6 +57,10 @@ clinical_tools_extract/data/
 clinical_tools_extract/legacy/
 clinical_eval_platform/data/
 clinical_eval_platform/public/benchmark.json
+clinical_eval_platform/clinical_queries.csv
+clinical_eval_platform/clinical_queries.xlsx
+clinical_eval_platform/queries.csv
+clinical_eval_platform/queries.xlsx
 clinical_eval_platform/query_responses.csv
 clinical_eval_platform/query_responses.xlsx
 clinical_eval_platform/~$*
