@@ -722,7 +722,7 @@ export default function EvalClient() {
     <div className="workspace-shell">
       <header className="workspace-header">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">CQ</span>
+          <span className="brand-mark" aria-hidden="true">NYU</span>
           <div><strong>Clinical Query Taxonomy</strong><span>Codebook {CODEBOOK_VERSION}</span></div>
         </div>
         <div className="header-progress" aria-label={`${completedQueries} of ${questions.length} queries complete`}>

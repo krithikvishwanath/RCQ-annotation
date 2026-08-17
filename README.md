@@ -55,9 +55,16 @@ Crawler directives are not access control. For a link that can be revoked, enabl
 Do not commit or place `real_chats.csv` in `public/`. Both Git and Vercel ignore files explicitly exclude the raw dataset and generated server data. For Vercel, create a **Private Blob** store, upload the approved dataset, and set its private URL as `ANNOTATION_BLOB_URL`. Connecting the store supplies `BLOB_READ_WRITE_TOKEN`; the server retrieves the CSV at runtime and never exposes the Blob URL or token to the browser.
 
 ```bash
+cd clinical_eval_platform
+vercel link
 vercel blob create-store rcq-annotation-data --access private --region iad1
-vercel blob put ../real_chats.csv --pathname datasets/real_chats.csv --access private
+vercel env pull .env.local
+vercel blob put ../real_chat_sample.csv --pathname datasets/real-chats-2026-08-17.csv --access private
 ```
+
+Copy the private URL returned by the upload into the Vercel project's `ANNOTATION_BLOB_URL` Production environment variable. Confirm that the connected store added `BLOB_READ_WRITE_TOKEN`, then redeploy. Use a new versioned pathname and update `ANNOTATION_BLOB_URL` when replacing a dataset so each study run has an unambiguous source.
+
+The production runtime also needs `DATABASE_URL` (or `POSTGRES_URL`), `EVAL_ACCESS_CODE`, and `ADMIN_PASSWORD`. After deployment, `/admin` should label the source as **Active dataset** and show the expected query count. If it still says **Example data**, check that both Blob environment variables were applied to Production and redeploy once more.
 
 Before storing any PHI, obtain institutional privacy/security approval and ensure the hosting plan, BAA, data residency, access controls, and connected database are all approved for that data. A private object URL alone is not a HIPAA compliance program. Prefer an institution-managed source if the dataset has not been formally de-identified.
 

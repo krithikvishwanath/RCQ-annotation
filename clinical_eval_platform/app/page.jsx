@@ -103,40 +103,20 @@ export default function HomePage() {
 
   return (
     <main className="welcome-shell">
-      <section className="welcome-story" aria-labelledby="welcome-title">
-        <div className="brand-lockup brand-lockup--light">
-          <span className="brand-mark" aria-hidden="true">CQ</span>
-          <span>Clinical Query Taxonomy</span>
-        </div>
-        <p className="eyebrow eyebrow--light">Clinician annotation study · Codebook v1</p>
-        <h1 id="welcome-title">Turn real clinical questions into a reliable taxonomy.</h1>
-        <p className="welcome-lede">
-          Classify de-identified queries across 25 forced-choice fields. Your work saves as you go,
-          and the exact decision rules stay available beside every judgement.
-        </p>
-
-        <div className="principle-list" aria-label="Annotation principles">
-          <div className="principle-item">
-            <span className="principle-number">01</span>
-            <div><strong>Read literally</strong><span>Use only what the query states. Do not fill in hidden clinical facts.</span></div>
-          </div>
-          <div className="principle-item">
-            <span className="principle-number">02</span>
-            <div><strong>Judge independently</strong><span>One field does not determine another unless a hard rule says so.</span></div>
-          </div>
-          <div className="principle-item">
-            <span className="principle-number">03</span>
-            <div><strong>Choose one best value</strong><span>If genuinely torn, use the most literal reading of the query.</span></div>
-          </div>
-        </div>
-      </section>
-
       <section className="signin-panel" aria-label="Annotator sign in">
         <div className="signin-card">
+          <div className="signin-brand">
+            <div className="brand-lockup">
+              <span className="brand-mark" aria-hidden="true">NYU</span>
+              <div><strong>Clinical Query Taxonomy</strong><span>Clinician annotation study</span></div>
+            </div>
+            <span className="codebook-chip">Codebook v1</span>
+          </div>
+
           <div className="signin-heading">
             <p className="eyebrow">Annotation workspace</p>
-            <h2>{existing ? "Welcome back" : "Begin a session"}</h2>
-            <p>{existing ? "Continue exactly where you left off." : "Use the identifier provided by the study team."}</p>
+            <h1>{existing ? "Welcome back" : "Begin a session"}</h1>
+            <p>{existing ? "Continue exactly where you left off." : "Classify de-identified clinical queries across 25 fields. Use the identifier provided by the study team."}</p>
           </div>
 
           {existing ? (
@@ -178,6 +158,15 @@ export default function HomePage() {
               </button>
             </form>
           )}
+
+          <details className="signin-guidance">
+            <summary>Before you begin</summary>
+            <ul>
+              <li>Read each query literally; do not infer unstated clinical facts.</li>
+              <li>Judge fields independently unless the codebook shows a hard rule.</li>
+              <li>Your selections save automatically as you work.</li>
+            </ul>
+          </details>
 
           <p className="privacy-note">
             Do not enter patient information in notes. Query text is provided by the study dataset and should already be de-identified.

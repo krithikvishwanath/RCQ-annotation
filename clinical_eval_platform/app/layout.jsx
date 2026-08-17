@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Clinical Query Taxonomy",
+  title: "NYU Clinical Query Taxonomy",
   description: "A rigorous clinician workspace for annotating real clinical queries.",
   robots: {
     index: false,

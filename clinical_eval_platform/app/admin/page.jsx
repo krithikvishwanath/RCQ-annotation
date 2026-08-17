@@ -77,7 +77,7 @@ export default async function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="admin-header">
-        <div className="brand-lockup"><span className="brand-mark">CQ</span><div><strong>Study administration</strong><span>Clinical Query Taxonomy</span></div></div>
+        <div className="brand-lockup"><span className="brand-mark">NYU</span><div><strong>Study administration</strong><span>Clinical Query Taxonomy</span></div></div>
         <div className="admin-header__actions">
           <Link className="button button--secondary button--compact" href="/">Annotator portal</Link>
           {dataset ? <a className="button button--primary button--compact" href={`/api/admin/export?datasetId=${encodeURIComponent(dataset.datasetId)}`}>Export CSV</a> : null}
