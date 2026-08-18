@@ -11,11 +11,12 @@ The application lives in `clinical_eval_platform/` and provides:
 - automatic enforcement of all hard consistency rules;
 - debounced server autosave plus browser recovery for interrupted sessions;
 - live admin coverage and field-level inter-rater reliability monitoring;
+- secure import of privacy-preserving LLM annotations with live human–model concordance;
 - searchable admin query inventory with per-query assignment and completion coverage;
 - audited assignment release/reassignment controls and analysis-ready CSV export;
 - a private-runtime dataset path for Vercel.
 
-The separate [`llm_eval/`](llm_eval/) package runs the identical 24-field codebook against the lab's self-hosted Barney endpoint from inside BigPurple. It provides token-budgeted asynchronous inference, validation, retry/backoff, exact usage accounting, and resumable Git-ignored JSONL output without coupling cluster access to the Vercel application.
+The separate [`llm_eval/`](llm_eval/) package runs the same 24-field semantic contract against either Anthropic's Claude API or the lab's self-hosted Barney endpoint. Its compact model prompt is hash-pinned and automatically checked against the canonical clinician codebook for every field, allowed value, and critical decision-rule family. The package also provides provider-specific structured output, token-budgeted asynchronous inference, validation, retry/backoff, exact usage accounting, and resumable Git-ignored JSONL output without coupling model access to the Vercel application.
 
 ## Local development
 
@@ -47,7 +48,7 @@ node scripts/sample-dataset.mjs --input ../real_chat_sample.csv --output ../real
 
 The command uses a documented Mulberry32 generator and Fisher–Yates shuffle, so the same input order, count, and seed produce the same cohort across runs.
 
-Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries with one, then two, assigned reviewers. After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice, and each query has at most three independent reviewers.
+Each annotator receives 40 randomly selected queries initially. Assignment is breadth-first: queries with no assigned review are sampled before queries with one, then two, assigned reviewers. Ties within each coverage level use a deterministic seeded shuffle (seed 42). After finishing the current batch, an annotator may explicitly press **Add 10 more queries**; add-on batches are never assigned automatically. A rater can never receive the same query twice within a study run or receive more than 100 queries, and each query has at most three independent reviewers.
 
 Coverage priority is based on assigned review slots, rather than completed annotations, so simultaneous reviewer sign-ins cannot overbook a subset of queries. Stalled assignments can be released or moved from the admin portal. For the 100-query study cohort, full coverage is 300 completed annotations. Deployments upgrading from the earlier two-review design preserve existing work, expand the database constraint safely, and add only each query's missing third slot.
 
@@ -106,7 +107,18 @@ npm test
 npm run build
 ```
 
-The admin portal is at `/admin`. It reports unanimous agreement and unweighted Fleiss' kappa for every field once all three reviews of a query are complete under the active codebook. The metrics refresh automatically every 20 seconds; derived labels are shown but excluded from the aggregate statistics.
+The admin portal is at `/admin`. It reports unanimous agreement and unweighted Fleiss' kappa for every field once all three reviews of a query are complete under the active codebook. Study progress, human-only IRR, and human–LLM concordance refresh automatically every 15 seconds; derived labels are shown but excluded from aggregate statistics.
+
+### Importing an LLM evaluation run
+
+After deploying the application changes, open `/admin` and find **Claude annotations and clinician concordance**. Choose both files from the local Git-ignored `llm_eval/outputs/` directory, then press **Validate and import**:
+
+- `claude_predictions.jsonl.manifest.json`
+- `claude_predictions.jsonl`
+
+The admin endpoint is protected by the same Basic Authentication as the rest of `/admin`. It validates the manifest and codebook version, matches every record to the active dataset by stable ID and SHA-256 query hash, requires the exact normalized 24-field schema, and rejects prediction files that contain query text. Only model labels, query IDs/hashes, limited response metadata, and the sanitized run manifest are stored in Neon. Re-importing the same run replaces it transactionally.
+
+The model is never treated as an additional clinician in the IRR calculation. The separate human–LLM panel reports descriptive field agreement between each completed clinician annotation and the fixed model annotation for the same query. Query-level model labels load only when an administrator requests them.
 
 Administrators can release an assignment back to the shared pool or move it to another registered reviewer. Saved annotations are never transferred between reviewer identities: changing an assignment with partial or completed work requires confirmation and permanently deletes that source annotation. Every move or release is recorded in `admin_assignment_events`. Open reviewer workspaces synchronize assignment changes within 30 seconds, while the server rejects saves to removed assignments immediately. Removing all of a reviewer's assignments does not trigger another automatic initial batch; the reviewer must explicitly request the next increment of 10.
 

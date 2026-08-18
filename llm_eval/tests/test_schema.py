@@ -32,6 +32,16 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(len(self.schema.fields), 24)
         self.assertEqual(len(set(self.schema.keys)), 24)
 
+    def test_json_schema_is_closed_and_requires_every_canonical_field(self) -> None:
+        json_schema = self.schema.to_json_schema()
+        self.assertFalse(json_schema["additionalProperties"])
+        self.assertEqual(json_schema["required"], list(self.schema.keys))
+        self.assertEqual(list(json_schema["properties"]), list(self.schema.keys))
+        self.assertEqual(
+            json_schema["properties"]["patient_specific"],
+            {"type": "integer", "enum": [0, 1]},
+        )
+
     def test_validation_preserves_canonical_field_order(self) -> None:
         annotation = self.valid_annotation()
         reversed_annotation = dict(reversed(list(annotation.items())))

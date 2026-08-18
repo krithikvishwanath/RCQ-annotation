@@ -2,8 +2,15 @@ import { ensureSchema } from "../../../lib/server/schema";
 import { getSql } from "../../../lib/server/db";
 import { checkAccessCode, isUuid, json, publicError } from "../../../lib/server/request";
 import {
+  allowedAssignmentBatchSize,
+  remainingAssignmentCapacity,
+  requestedAssignmentBatchSize,
+} from "../../../lib/assignment-policy";
+import {
   ADDITIONAL_ASSIGNMENT_COUNT,
+  ASSIGNMENT_RANDOM_SEED,
   INITIAL_ASSIGNMENT_COUNT,
+  MAX_ASSIGNMENTS_PER_RATER,
   REQUIRED_REVIEWS_PER_QUERY,
 } from "../../../lib/study-config";
 
@@ -30,11 +37,18 @@ async function getRunVersion(sql, datasetId) {
   return rows?.[0]?.run_version ?? 1;
 }
 
-async function getAvailability(sql, datasetId, sessionId) {
+async function getAvailability(sql, datasetId, sessionId, runVersion) {
   const rows = await sql`
     SELECT
       COUNT(*)::int AS remaining_slots,
-      COUNT(DISTINCT s.question_id)::int AS remaining_queries
+      COUNT(DISTINCT s.question_id)::int AS remaining_queries,
+      (
+        SELECT COUNT(*)::int
+        FROM rater_query_assignment_history history
+        WHERE history.benchmark_id = ${datasetId}
+          AND history.run_version = ${runVersion}
+          AND history.rater_id = ${sessionId}::uuid
+      ) AS previously_assigned
     FROM question_review_slots s
     WHERE s.benchmark_id = ${datasetId}
       AND s.slot < ${REQUIRED_REVIEWS_PER_QUERY}
@@ -52,10 +66,20 @@ async function getAvailability(sql, datasetId, sessionId) {
           AND a.question_id = s.question_id
           AND a.rater_id = ${sessionId}::uuid
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM rater_query_assignment_history history
+        WHERE history.benchmark_id = s.benchmark_id
+          AND history.run_version = ${runVersion}
+          AND history.question_id = s.question_id
+          AND history.rater_id = ${sessionId}::uuid
+      )
   `;
+  const capacity = remainingAssignmentCapacity(rows?.[0]?.previously_assigned ?? 0);
   return {
-    remainingSlots: rows?.[0]?.remaining_slots ?? 0,
-    remainingQueries: rows?.[0]?.remaining_queries ?? 0,
+    remainingSlots: Math.min(rows?.[0]?.remaining_slots ?? 0, capacity),
+    remainingQueries: Math.min(rows?.[0]?.remaining_queries ?? 0, capacity),
+    assignmentCount: rows?.[0]?.previously_assigned ?? 0,
+    assignmentLimit: MAX_ASSIGNMENTS_PER_RATER,
   };
 }
 
@@ -82,6 +106,7 @@ export async function GET(request) {
     if (!(await requireRater(sql, sessionId))) {
       return json(401, { error: "Session not found. Please sign in again." });
     }
+    const runVersion = await getRunVersion(sql, datasetId);
 
     const assigned = await sql`
       SELECT question_id
@@ -100,10 +125,10 @@ export async function GET(request) {
     `;
 
     return json(200, {
-      runVersion: await getRunVersion(sql, datasetId),
+      runVersion,
       questionIds: assigned.map((row) => row.question_id),
       hasClaimedInitial: state.length > 0 || assigned.length > 0,
-      ...(await getAvailability(sql, datasetId, sessionId)),
+      ...(await getAvailability(sql, datasetId, sessionId, runVersion)),
     });
   } catch (error) {
     return publicError(error, "Failed to load assignments.");
@@ -141,11 +166,19 @@ export async function POST(request) {
           hashtextextended(${`${datasetId}:${sessionId}`}, 0)
         )
       `;
+      const runVersion = await getRunVersion(transaction, datasetId);
 
       const stateRows = await transaction`
         SELECT
           COUNT(*)::int AS assigned,
           COUNT(*) FILTER (WHERE COALESCE(a.is_complete, false) = false)::int AS incomplete,
+          (
+            SELECT COUNT(*)::int
+            FROM rater_query_assignment_history history
+            WHERE history.benchmark_id = ${datasetId}
+              AND history.run_version = ${runVersion}
+              AND history.rater_id = ${sessionId}::uuid
+          ) AS previously_assigned,
           EXISTS (
             SELECT 1
             FROM rater_dataset_state state
@@ -163,12 +196,14 @@ export async function POST(request) {
       `;
       const existingCount = stateRows[0]?.assigned || 0;
       const incompleteCount = stateRows[0]?.incomplete || 0;
-      const hasClaimedInitial = Boolean(stateRows[0]?.has_claimed_initial) || existingCount > 0;
-      const claimCount = hasClaimedInitial
-        ? ADDITIONAL_ASSIGNMENT_COUNT
-        : INITIAL_ASSIGNMENT_COUNT;
+      const previouslyAssignedCount = stateRows[0]?.previously_assigned || 0;
+      const hasClaimedInitial = Boolean(stateRows[0]?.has_claimed_initial)
+        || existingCount > 0
+        || previouslyAssignedCount > 0;
+      const requestedBatchSize = requestedAssignmentBatchSize(hasClaimedInitial);
+      const claimCount = allowedAssignmentBatchSize(hasClaimedInitial, previouslyAssignedCount);
 
-      if (requestedCount != null && requestedCount !== claimCount) {
+      if (requestedCount != null && requestedCount !== requestedBatchSize) {
         return {
           error: `This study assigns ${INITIAL_ASSIGNMENT_COUNT} queries initially and ${ADDITIONAL_ASSIGNMENT_COUNT} per optional add-on batch.`,
           status: 400,
@@ -177,6 +212,12 @@ export async function POST(request) {
       if (existingCount && incompleteCount) {
         return {
           error: `Complete the current assigned queries before requesting ${ADDITIONAL_ASSIGNMENT_COUNT} more.`,
+          status: 409,
+        };
+      }
+      if (!claimCount) {
+        return {
+          error: `A clinician cannot be assigned more than ${MAX_ASSIGNMENTS_PER_RATER} queries.`,
           status: 409,
         };
       }
@@ -215,6 +256,13 @@ export async function POST(request) {
                 AND a.question_id = s.question_id
                 AND a.rater_id = ${sessionId}::uuid
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM rater_query_assignment_history history
+              WHERE history.benchmark_id = s.benchmark_id
+                AND history.run_version = ${runVersion}
+                AND history.question_id = s.question_id
+                AND history.rater_id = ${sessionId}::uuid
+            )
         ), picked AS (
           SELECT slots.benchmark_id, slots.question_id, slots.slot
           FROM question_review_slots slots
@@ -224,21 +272,42 @@ export async function POST(request) {
             AND candidate.slot = slots.slot
           WHERE candidate.candidate_rank = 1
             AND slots.rater_id IS NULL
-          ORDER BY candidate.assigned_reviews ASC, random()
+          ORDER BY
+            candidate.assigned_reviews ASC,
+            md5(concat_ws(':', ${ASSIGNMENT_RANDOM_SEED}::text, candidate.benchmark_id, candidate.question_id)),
+            candidate.question_id ASC
           LIMIT ${claimCount}
           FOR UPDATE OF slots SKIP LOCKED
+        ), recorded AS (
+          INSERT INTO rater_query_assignment_history (
+            benchmark_id, run_version, question_id, rater_id, assigned_at
+          )
+          SELECT
+            picked.benchmark_id,
+            ${runVersion},
+            picked.question_id,
+            ${sessionId}::uuid,
+            now()
+          FROM picked
+          ON CONFLICT (benchmark_id, run_version, question_id, rater_id) DO NOTHING
+          RETURNING benchmark_id, question_id
+        ), updated AS (
+          UPDATE question_review_slots slots
+          SET rater_id = ${sessionId}::uuid,
+              assigned_at = now(),
+              last_activity_at = now(),
+              updated_at = now()
+          FROM picked
+          JOIN recorded
+            ON recorded.benchmark_id = picked.benchmark_id
+            AND recorded.question_id = picked.question_id
+          WHERE slots.benchmark_id = picked.benchmark_id
+            AND slots.question_id = picked.question_id
+            AND slots.slot = picked.slot
+            AND slots.rater_id IS NULL
+          RETURNING slots.question_id
         )
-        UPDATE question_review_slots slots
-        SET rater_id = ${sessionId}::uuid,
-            assigned_at = now(),
-            last_activity_at = now(),
-            updated_at = now()
-        FROM picked
-        WHERE slots.benchmark_id = picked.benchmark_id
-          AND slots.question_id = picked.question_id
-          AND slots.slot = picked.slot
-          AND slots.rater_id IS NULL
-        RETURNING slots.question_id
+        SELECT question_id FROM updated
       `;
 
       if (claimed.length) {
@@ -261,11 +330,11 @@ export async function POST(request) {
       `;
 
       return {
-        runVersion: await getRunVersion(transaction, datasetId),
+        runVersion,
         claimedQuestionIds: claimed.map((row) => row.question_id),
         questionIds: assigned.map((row) => row.question_id),
         hasClaimedInitial: hasClaimedInitial || claimed.length > 0,
-        ...(await getAvailability(transaction, datasetId, sessionId)),
+        ...(await getAvailability(transaction, datasetId, sessionId, runVersion)),
       };
     });
 

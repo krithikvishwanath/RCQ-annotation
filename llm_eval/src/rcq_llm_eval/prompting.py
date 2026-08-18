@@ -45,6 +45,8 @@ def plan_concurrency(
     max_output_tokens: int,
     token_budget: int,
     max_concurrency: int,
+    supplemental_input_chars: int = 0,
+    characters_per_token: float = 4.0,
 ) -> ConcurrencyPlan:
     if max_output_tokens < 1:
         raise ValueError("max_output_tokens must be positive.")
@@ -52,11 +54,21 @@ def plan_concurrency(
         raise ValueError("token_budget must be positive.")
     if max_concurrency < 1:
         raise ValueError("max_concurrency must be positive.")
+    if supplemental_input_chars < 0:
+        raise ValueError("supplemental_input_chars cannot be negative.")
+    if characters_per_token <= 0:
+        raise ValueError("characters_per_token must be positive.")
 
     largest_query = max((len(query.text) for query in queries), default=0)
-    # Barney's guidance recommends ~4 characters/token. Add a small chat-envelope
-    # allowance and use the largest pending query so the plan is conservative.
-    estimated_input_tokens = math.ceil((len(system_prompt) + largest_query) / 4) + 32
+    # Include provider-specific request material (such as a JSON Schema), add a
+    # small chat-envelope allowance, and use the largest pending query.
+    estimated_input_tokens = (
+        math.ceil(
+            (len(system_prompt) + largest_query + supplemental_input_chars)
+            / characters_per_token
+        )
+        + 32
+    )
     per_request = estimated_input_tokens + max_output_tokens
     budget_concurrency = max(1, (token_budget - 1) // per_request)
     concurrency = max(

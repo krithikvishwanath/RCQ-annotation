@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from rcq_llm_eval.cli import connection_settings
+from rcq_llm_eval.cli import anthropic_api_key, connection_settings, parse_args
 from rcq_llm_eval.storage import OutputStore
 
 
@@ -55,6 +55,23 @@ class StorageAndConnectionTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "NYU NetID"):
                 connection_settings()
+
+    def test_anthropic_key_is_required_without_logging_or_transforming_it(self) -> None:
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret-value"}, clear=True):
+            self.assertEqual(anthropic_api_key(), "secret-value")
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "ANTHROPIC_API_KEY is missing"):
+                anthropic_api_key()
+
+    def test_provider_defaults_keep_outputs_and_models_separate(self) -> None:
+        barney = parse_args([])
+        claude = parse_args(["--provider", "anthropic"])
+        self.assertEqual(barney.model, "Barney")
+        self.assertEqual(barney.output.name, "barney_predictions.jsonl")
+        self.assertEqual(barney.temperature, 0.0)
+        self.assertEqual(claude.model, "claude-sonnet-5")
+        self.assertEqual(claude.output.name, "claude_predictions.jsonl")
+        self.assertIsNone(claude.temperature)
 
 
 if __name__ == "__main__":

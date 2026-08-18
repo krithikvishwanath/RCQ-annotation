@@ -144,6 +144,51 @@ async function initializeSchema() {
   `;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS llm_annotation_runs (
+      run_id text PRIMARY KEY,
+      dataset_id text NOT NULL,
+      provider text NOT NULL,
+      model text NOT NULL,
+      codebook_version text NOT NULL,
+      prompt_sha256 text NOT NULL,
+      schema_sha256 text NOT NULL,
+      record_count int NOT NULL CHECK (record_count > 0),
+      manifest jsonb NOT NULL,
+      imported_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT llm_annotation_runs_manifest_object
+        CHECK (jsonb_typeof(manifest) = 'object')
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS llm_annotation_runs_dataset_idx
+    ON llm_annotation_runs (dataset_id, imported_at DESC)
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS llm_annotations (
+      run_id text NOT NULL REFERENCES llm_annotation_runs(run_id) ON DELETE CASCADE,
+      dataset_id text NOT NULL,
+      question_id text NOT NULL,
+      query_sha256 text NOT NULL,
+      labels jsonb NOT NULL,
+      attempts int NOT NULL DEFAULT 1 CHECK (attempts > 0),
+      usage jsonb NOT NULL DEFAULT '{}'::jsonb,
+      response_id text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (run_id, question_id),
+      CONSTRAINT llm_annotations_labels_object CHECK (jsonb_typeof(labels) = 'object'),
+      CONSTRAINT llm_annotations_usage_object CHECK (jsonb_typeof(usage) = 'object')
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS llm_annotations_dataset_question_idx
+    ON llm_annotations (dataset_id, question_id)
+  `;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS benchmark_state (
       benchmark_id text PRIMARY KEY,
       run_version int NOT NULL DEFAULT 1,
@@ -151,6 +196,22 @@ async function initializeSchema() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS rater_query_assignment_history (
+      benchmark_id text NOT NULL,
+      run_version int NOT NULL CHECK (run_version > 0),
+      question_id text NOT NULL,
+      rater_id uuid NOT NULL REFERENCES raters(id) ON DELETE CASCADE,
+      assigned_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (benchmark_id, run_version, question_id, rater_id)
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS rater_query_assignment_history_rater_idx
+    ON rater_query_assignment_history (benchmark_id, run_version, rater_id)
   `;
 
   const dataset = await getDataset();
@@ -195,5 +256,66 @@ async function initializeSchema() {
     INSERT INTO benchmark_state (benchmark_id, run_version, updated_at)
     VALUES (${datasetId}, 1, now())
     ON CONFLICT (benchmark_id) DO NOTHING
+  `;
+
+  // Seed assignment history for deployments upgrading in the middle of a run.
+  // The current run version keeps a deliberate admin reset as a clean study run.
+  await sql`
+    INSERT INTO rater_query_assignment_history (
+      benchmark_id, run_version, question_id, rater_id, assigned_at
+    )
+    SELECT
+      slots.benchmark_id,
+      state.run_version,
+      slots.question_id,
+      slots.rater_id,
+      COALESCE(slots.assigned_at, slots.created_at)
+    FROM question_review_slots slots
+    JOIN benchmark_state state ON state.benchmark_id = slots.benchmark_id
+    WHERE slots.benchmark_id = ${datasetId}
+      AND slots.rater_id IS NOT NULL
+    ON CONFLICT (benchmark_id, run_version, question_id, rater_id) DO NOTHING
+  `;
+
+  await sql`
+    INSERT INTO rater_query_assignment_history (
+      benchmark_id, run_version, question_id, rater_id, assigned_at
+    )
+    SELECT
+      annotations.dataset_id,
+      state.run_version,
+      annotations.question_id,
+      annotations.rater_id,
+      annotations.created_at
+    FROM annotations
+    JOIN benchmark_state state ON state.benchmark_id = annotations.dataset_id
+    WHERE annotations.dataset_id = ${datasetId}
+    ON CONFLICT (benchmark_id, run_version, question_id, rater_id) DO NOTHING
+  `;
+
+  await sql`
+    INSERT INTO rater_query_assignment_history (
+      benchmark_id, run_version, question_id, rater_id, assigned_at
+    )
+    SELECT
+      events.dataset_id,
+      state.run_version,
+      events.question_id,
+      events.rater_id,
+      MIN(events.created_at)
+    FROM (
+      SELECT dataset_id, question_id, source_rater_id AS rater_id, created_at
+      FROM admin_assignment_events
+      WHERE source_rater_id IS NOT NULL
+      UNION ALL
+      SELECT dataset_id, question_id, target_rater_id AS rater_id, created_at
+      FROM admin_assignment_events
+      WHERE target_rater_id IS NOT NULL
+    ) events
+    JOIN benchmark_state state ON state.benchmark_id = events.dataset_id
+    WHERE events.dataset_id = ${datasetId}
+      AND events.created_at >= COALESCE(state.reset_at, '-infinity'::timestamptz)
+    GROUP BY events.dataset_id, state.run_version, events.question_id, events.rater_id
+    ON CONFLICT (benchmark_id, run_version, question_id, rater_id) DO NOTHING
   `;
 }

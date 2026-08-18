@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-const REFRESH_INTERVAL_MS = 20_000;
+import { useMemo } from "react";
 
 function formatPercent(value) {
   return value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -12,36 +10,7 @@ function formatKappa(value) {
   return value == null ? "—" : value.toFixed(2);
 }
 
-export default function ReliabilityClient({ datasetId, initialReliability }) {
-  const [reliability, setReliability] = useState(initialReliability);
-  const [updatedAt, setUpdatedAt] = useState(null);
-  const [error, setError] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-
-  const refresh = useCallback(async ({ quiet = false } = {}) => {
-    if (!quiet) setRefreshing(true);
-    try {
-      const query = new URLSearchParams({ datasetId });
-      const response = await fetch(`/api/admin/metrics?${query}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || "Reliability metrics could not be refreshed.");
-      setReliability(data.reliability);
-      setUpdatedAt(data.generatedAt || new Date().toISOString());
-      setError("");
-    } catch (caught) {
-      setError(caught?.message || "Reliability metrics could not be refreshed.");
-    } finally {
-      if (!quiet) setRefreshing(false);
-    }
-  }, [datasetId]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") refresh({ quiet: true });
-    }, REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
+export default function ReliabilityClient({ reliability, updatedAt, error, refreshing, onRefresh }) {
   const rows = useMemo(
     () => [...(reliability?.fields || [])].sort((left, right) => {
       if (left.kappa == null && right.kappa != null) return 1;
@@ -58,7 +27,7 @@ export default function ReliabilityClient({ datasetId, initialReliability }) {
         <div><p className="eyebrow">Inter-rater reliability</p><h2>Agreement by codebook field</h2></div>
         <div className="admin-live-controls">
           <span><i />Live{updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })}` : ""}</span>
-          <button className="button button--quiet button--compact" disabled={refreshing} onClick={() => refresh()}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+          <button className="button button--quiet button--compact" disabled={refreshing} onClick={onRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
         </div>
       </div>
 

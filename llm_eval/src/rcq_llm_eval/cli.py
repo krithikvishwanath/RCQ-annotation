@@ -13,16 +13,41 @@ from urllib.parse import urlparse
 from .batch import BatchConfig, TokenUsage, run_batch
 from .dataset import Query, file_sha256, load_queries
 from .prompting import ConcurrencyPlan, load_system_prompt, plan_concurrency
+from .providers import AnthropicProvider, CompletionProvider, OpenAICompatibleProvider
 from .schema import AnnotationSchema
 from .storage import OutputStore
 
 
-LLM_EVAL_ROOT = Path(__file__).resolve().parents[2]
-REPO_ROOT = LLM_EVAL_ROOT.parent
+def discover_repo_root() -> Path:
+    configured = os.environ.get("RCQ_REPO_ROOT", "").strip()
+    candidates = [Path(configured).expanduser()] if configured else []
+    candidates.extend([Path.cwd(), Path.cwd().parent])
+    candidates.extend(Path(__file__).resolve().parents)
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if (resolved / "prompt.txt").is_file() and (
+            resolved / "llm_eval" / "annotation_schema.json"
+        ).is_file():
+            return resolved
+    raise RuntimeError(
+        "Could not locate the RCQ repository. Run from the repo/llm_eval directory "
+        "or set RCQ_REPO_ROOT."
+    )
+
+
+REPO_ROOT = discover_repo_root()
+LLM_EVAL_ROOT = REPO_ROOT / "llm_eval"
 DEFAULT_INPUT = REPO_ROOT / "real_chat_sample.csv"
-DEFAULT_PROMPT = REPO_ROOT / "prompt.txt"
+DEFAULT_PROMPT = LLM_EVAL_ROOT / "prompt_compact.txt"
 DEFAULT_SCHEMA = LLM_EVAL_ROOT / "annotation_schema.json"
-DEFAULT_OUTPUT = LLM_EVAL_ROOT / "outputs" / "barney_predictions.jsonl"
+DEFAULT_MODELS = {
+    "barney": "Barney",
+    "anthropic": "claude-sonnet-5",
+}
+DEFAULT_OUTPUTS = {
+    "barney": LLM_EVAL_ROOT / "outputs" / "barney_predictions.jsonl",
+    "anthropic": LLM_EVAL_ROOT / "outputs" / "claude_predictions.jsonl",
+}
 
 
 def utc_now() -> str:
@@ -31,13 +56,19 @@ def utc_now() -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Annotate RCQ queries through Barney with bounded asynchronous concurrency."
+        description="Annotate RCQ queries through Barney or Claude with bounded asynchronous concurrency."
+    )
+    parser.add_argument(
+        "--provider",
+        choices=tuple(DEFAULT_MODELS),
+        default="barney",
+        help="API provider (default: barney).",
     )
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--model", default="Barney")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--model")
     parser.add_argument("--token-budget", type=int, default=50_000)
     parser.add_argument(
         "--max-concurrency",
@@ -48,7 +79,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-tokens", type=int, default=1_200)
     parser.add_argument("--max-retries", type=int, default=4)
     parser.add_argument("--request-timeout", type=float, default=240.0)
-    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        help="Sampling temperature. Defaults to 0 for Barney and the provider default for Claude.",
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument(
         "--query-id",
@@ -59,7 +94,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--json-mode",
         action="store_true",
-        help="Send response_format=json_object if the current Barney server supports it.",
+        help="Request OpenAI-compatible JSON mode from Barney (Claude always uses JSON Schema).",
     )
     parser.add_argument(
         "--include-query-text",
@@ -69,19 +104,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Validate files and print the token/concurrency plan without contacting Barney.",
+        help="Validate files and print the token/concurrency plan without contacting an API.",
     )
     args = parser.parse_args(argv)
+    if args.model is None:
+        args.model = DEFAULT_MODELS[args.provider]
+    if args.output is None:
+        args.output = DEFAULT_OUTPUTS[args.provider]
+    if args.provider == "barney" and args.temperature is None:
+        args.temperature = 0.0
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be positive.")
     if args.max_retries < 0:
         parser.error("--max-retries cannot be negative.")
     if args.request_timeout <= 0:
         parser.error("--request-timeout must be positive.")
-    if not 0 <= args.temperature <= 2:
+    if args.temperature is not None and not 0 <= args.temperature <= 2:
         parser.error("--temperature must be between 0 and 2.")
     if not str(args.model).strip():
         parser.error("--model cannot be empty.")
+    if args.provider == "anthropic" and args.json_mode:
+        parser.error("--json-mode is only for Barney; Claude uses native JSON Schema automatically.")
+    if args.model == "claude-sonnet-5" and args.temperature is not None:
+        parser.error("claude-sonnet-5 does not accept a temperature override; omit --temperature.")
     return args
 
 
@@ -132,6 +177,13 @@ def connection_settings() -> tuple[str, str]:
     return base_url, api_key
 
 
+def anthropic_api_key() -> str:
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is missing. Add it to the repository or llm_eval .env file.")
+    return api_key
+
+
 def build_run_metadata(
     *,
     args: argparse.Namespace,
@@ -143,6 +195,7 @@ def build_run_metadata(
 ) -> dict[str, object]:
     fingerprint_input = {
         "format_version": 1,
+        "provider": args.provider,
         "dataset_sha256": dataset_sha256,
         "selected_query_ids": [query.query_id for query in selected],
         "prompt_sha256": prompt_sha256,
@@ -150,7 +203,13 @@ def build_run_metadata(
         "model": args.model,
         "max_tokens": args.max_tokens,
         "temperature": args.temperature,
-        "json_mode": args.json_mode,
+        "response_format": (
+            "anthropic_json_schema"
+            if args.provider == "anthropic"
+            else "openai_json_object" if args.json_mode else "prompt_only"
+        ),
+        "thinking": "disabled" if args.provider == "anthropic" else None,
+        "prompt_cache": "ephemeral_5m" if args.provider == "anthropic" else None,
         "include_query_text": args.include_query_text,
     }
     fingerprint = hashlib.sha256(
@@ -174,6 +233,7 @@ def print_plan(
     pending: int,
     plan: ConcurrencyPlan,
 ) -> None:
+    print(f"Provider/model:           {args.provider} / {args.model}")
     print(f"Selected queries:          {total_selected}")
     print(f"Already complete:          {already_complete}")
     print(f"Pending requests:          {pending}")
@@ -185,7 +245,11 @@ def print_plan(
     print(f"Estimated tokens in flight:{plan.estimated_tokens_in_flight:>10,}")
     if plan.estimated_tokens_per_request >= plan.token_budget:
         print("WARNING: one request alone is estimated to meet or exceed the token budget.")
-    if args.json_mode:
+    if args.provider == "anthropic":
+        print("JSON response mode:         native JSON Schema")
+        print("Extended thinking:          disabled for bounded classification")
+        print("Prompt cache:               5-minute ephemeral system-prompt cache")
+    elif args.json_mode:
         print("JSON response mode:         requested (server support required)")
     else:
         print("JSON response mode:         prompt-enforced compatibility mode")
@@ -199,11 +263,24 @@ async def execute(args: argparse.Namespace) -> int:
 
     schema = AnnotationSchema.load(schema_path)
     system_prompt, prompt_sha256 = load_system_prompt(prompt_path, schema.version)
+    schema.validate_prompt_coverage(system_prompt)
     schema_sha256 = file_sha256(schema_path)
     dataset_sha256 = file_sha256(input_path)
     selected = select_queries(load_queries(input_path), args.query_id, args.limit)
     if not selected:
         raise RuntimeError("No queries remain after applying the requested selection.")
+
+    if args.provider == "anthropic":
+        supplemental_input_chars = len(
+            json.dumps(schema.to_json_schema(), separators=(",", ":"), ensure_ascii=False)
+        )
+        # Sonnet 5's tokenizer plus structured-output grammar uses more tokens
+        # than Barney's four-characters/token rule. This factor is deliberately
+        # conservative relative to the observed one-query smoke test.
+        characters_per_token = 2.65
+    else:
+        supplemental_input_chars = 0
+        characters_per_token = 4.0
 
     metadata = build_run_metadata(
         args=args,
@@ -221,6 +298,8 @@ async def execute(args: argparse.Namespace) -> int:
             max_output_tokens=args.max_tokens,
             token_budget=args.token_budget,
             max_concurrency=args.max_concurrency,
+            supplemental_input_chars=supplemental_input_chars,
+            characters_per_token=characters_per_token,
         )
         print_plan(
             args=args,
@@ -229,7 +308,7 @@ async def execute(args: argparse.Namespace) -> int:
             pending=len(selected),
             plan=plan,
         )
-        print("Dry run only; Barney was not contacted and no output files were created.")
+        print("Dry run only; no API was contacted and no output files were created.")
         return 0
 
     with OutputStore(output_path) as store:
@@ -242,6 +321,8 @@ async def execute(args: argparse.Namespace) -> int:
             max_output_tokens=args.max_tokens,
             token_budget=args.token_budget,
             max_concurrency=args.max_concurrency,
+            supplemental_input_chars=supplemental_input_chars,
+            characters_per_token=characters_per_token,
         )
         print_plan(
             args=args,
@@ -254,20 +335,12 @@ async def execute(args: argparse.Namespace) -> int:
             print("All selected queries already have successful results.")
             return 0
 
-        base_url, api_key = connection_settings()
-        try:
-            from openai import AsyncOpenAI
-        except ImportError as error:
-            raise RuntimeError(
-                "The OpenAI SDK is not installed. Run `python -m pip install -e .` in llm_eval/."
-            ) from error
-
         config = BatchConfig(
+            provider=args.provider,
             model=args.model,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
             max_retries=args.max_retries,
-            json_mode=args.json_mode,
             include_query_text=args.include_query_text,
             prompt_sha256=prompt_sha256,
         )
@@ -289,14 +362,9 @@ async def execute(args: argparse.Namespace) -> int:
                 flush=True,
             )
 
-        async with AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=args.request_timeout,
-            max_retries=0,
-        ) as client:
+        async def invoke(provider: CompletionProvider) -> tuple[list[dict[str, object]], int]:
             results, aborted = await run_batch(
-                client=client,
+                provider=provider,
                 queries=pending,
                 system_prompt=system_prompt,
                 schema=schema,
@@ -304,6 +372,39 @@ async def execute(args: argparse.Namespace) -> int:
                 config=config,
                 on_result=on_result,
             )
+            return results, aborted
+
+        if args.provider == "barney":
+            base_url, api_key = connection_settings()
+            try:
+                from openai import AsyncOpenAI
+            except ImportError as error:
+                raise RuntimeError(
+                    "The OpenAI SDK is not installed. Run `python -m pip install -e .` in llm_eval/."
+                ) from error
+            async with AsyncOpenAI(
+                base_url=base_url,
+                api_key=api_key,
+                timeout=args.request_timeout,
+                max_retries=0,
+            ) as client:
+                results, aborted = await invoke(
+                    OpenAICompatibleProvider(client, json_mode=args.json_mode)
+                )
+        else:
+            api_key = anthropic_api_key()
+            try:
+                from anthropic import AsyncAnthropic
+            except ImportError as error:
+                raise RuntimeError(
+                    "The Anthropic SDK is not installed. Run `python -m pip install -e .` in llm_eval/."
+                ) from error
+            async with AsyncAnthropic(
+                api_key=api_key,
+                timeout=args.request_timeout,
+                max_retries=0,
+            ) as client:
+                results, aborted = await invoke(AnthropicProvider(client))
 
         usage = TokenUsage()
         for result in results:
@@ -313,6 +414,11 @@ async def execute(args: argparse.Namespace) -> int:
                     prompt_tokens=int(values.get("prompt_tokens", 0)),
                     completion_tokens=int(values.get("completion_tokens", 0)),
                     total_tokens=int(values.get("total_tokens", 0)),
+                    uncached_input_tokens=int(values.get("uncached_input_tokens", 0)),
+                    cache_creation_input_tokens=int(
+                        values.get("cache_creation_input_tokens", 0)
+                    ),
+                    cache_read_input_tokens=int(values.get("cache_read_input_tokens", 0)),
                 )
             )
         manifest["updated_at"] = utc_now()
@@ -333,7 +439,9 @@ async def execute(args: argparse.Namespace) -> int:
         print(
             f"Run complete: {successes} succeeded, {failures} failed, {aborted} aborted; "
             f"usage={usage.prompt_tokens:,} input + {usage.completion_tokens:,} output "
-            f"= {usage.total_tokens:,} total tokens."
+            f"= {usage.total_tokens:,} total tokens "
+            f"({usage.cache_creation_input_tokens:,} cache-write, "
+            f"{usage.cache_read_input_tokens:,} cache-read)."
         )
         return 1 if failures or aborted else 0
 

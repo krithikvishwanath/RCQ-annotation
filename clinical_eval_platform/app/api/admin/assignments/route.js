@@ -2,7 +2,10 @@ import { getDataset } from "../../../../lib/server/dataset";
 import { getSql } from "../../../../lib/server/db";
 import { isUuid, json, publicError } from "../../../../lib/server/request";
 import { ensureSchema } from "../../../../lib/server/schema";
-import { REQUIRED_REVIEWS_PER_QUERY } from "../../../../lib/study-config";
+import {
+  MAX_ASSIGNMENTS_PER_RATER,
+  REQUIRED_REVIEWS_PER_QUERY,
+} from "../../../../lib/study-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,9 +103,25 @@ export async function POST(request) {
     await ensureSchema();
     const sql = getSql();
     const result = await sql.begin(async (transaction) => {
+      if (targetRaterId) {
+        // Uses the same lock as self-service claims so the 100-query cap
+        // remains safe when an admin move and a claim happen concurrently.
+        await transaction`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`${datasetId}:${targetRaterId}`}, 0)
+          )
+        `;
+      }
       await transaction`
         SELECT pg_advisory_xact_lock(hashtextextended(${`${datasetId}:${questionId}`}, 0))
       `;
+      const state = await transaction`
+        SELECT run_version::int AS run_version
+        FROM benchmark_state
+        WHERE benchmark_id = ${datasetId}
+        LIMIT 1
+      `;
+      const runVersion = state[0]?.run_version ?? 1;
       const current = await transaction`
         SELECT rater_id::text
         FROM question_review_slots
@@ -150,10 +169,31 @@ export async function POST(request) {
           WHERE dataset_id = ${datasetId}
             AND question_id = ${questionId}
             AND rater_id = ${targetRaterId}::uuid
+          UNION ALL
+          SELECT 1 AS conflict
+          FROM rater_query_assignment_history
+          WHERE benchmark_id = ${datasetId}
+            AND run_version = ${runVersion}
+            AND question_id = ${questionId}
+            AND rater_id = ${targetRaterId}::uuid
           LIMIT 1
         `;
         if (conflict.length) {
-          return { status: 409, error: "The destination reviewer already has this query or saved work for it." };
+          return { status: 409, error: "The destination reviewer has already been assigned this query in the current study run." };
+        }
+
+        const targetHistory = await transaction`
+          SELECT COUNT(*)::int AS assigned
+          FROM rater_query_assignment_history
+          WHERE benchmark_id = ${datasetId}
+            AND run_version = ${runVersion}
+            AND rater_id = ${targetRaterId}::uuid
+        `;
+        if ((targetHistory[0]?.assigned || 0) >= MAX_ASSIGNMENTS_PER_RATER) {
+          return {
+            status: 409,
+            error: `The destination reviewer has reached the ${MAX_ASSIGNMENTS_PER_RATER}-query assignment limit.`,
+          };
         }
       }
 
@@ -163,6 +203,16 @@ export async function POST(request) {
           WHERE dataset_id = ${datasetId}
             AND question_id = ${questionId}
             AND rater_id = ${sourceRaterId}::uuid
+        `;
+      }
+
+      if (targetRaterId) {
+        await transaction`
+          INSERT INTO rater_query_assignment_history (
+            benchmark_id, run_version, question_id, rater_id, assigned_at
+          ) VALUES (
+            ${datasetId}, ${runVersion}, ${questionId}, ${targetRaterId}::uuid, now()
+          )
         `;
       }
 

@@ -53,6 +53,20 @@ class DatasetAndBudgetTests(unittest.TestCase):
         self.assertEqual(plan.concurrency, 5)
         self.assertLess(plan.estimated_tokens_in_flight, 50_000)
 
+    def test_provider_schema_overhead_reduces_concurrency(self) -> None:
+        queries = [Query(str(index), "short query") for index in range(100)]
+        plan = plan_concurrency(
+            "x" * 34_822,
+            queries,
+            max_output_tokens=1_200,
+            token_budget=50_000,
+            max_concurrency=16,
+            supplemental_input_chars=4_000,
+            characters_per_token=2.65,
+        )
+        self.assertEqual(plan.concurrency, 3)
+        self.assertLess(plan.estimated_tokens_in_flight, 50_000)
+
 
 if __name__ == "__main__":
     unittest.main()

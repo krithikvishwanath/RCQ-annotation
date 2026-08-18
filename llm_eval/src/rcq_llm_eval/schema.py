@@ -46,6 +46,40 @@ class AnnotationSchema:
     def keys(self) -> tuple[str, ...]:
         return tuple(field.key for field in self.fields)
 
+    def to_json_schema(self) -> dict[str, Any]:
+        """Return the strict JSON Schema shared with providers that support it."""
+        properties = {
+            field.key: {
+                "type": field.value_type,
+                "enum": list(field.allowed),
+            }
+            for field in self.fields
+        }
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(self.keys),
+            "additionalProperties": False,
+        }
+
+    def validate_prompt_coverage(self, prompt: str) -> None:
+        """Fail when a model prompt omits a field or exact categorical value."""
+        missing_fields = [key for key in self.keys if key not in prompt]
+        allowed_strings = {
+            value
+            for field in self.fields
+            for value in field.allowed
+            if isinstance(value, str)
+        }
+        missing_values = sorted(value for value in allowed_strings if value not in prompt)
+        errors: list[str] = []
+        if missing_fields:
+            errors.append(f"missing fields: {', '.join(missing_fields)}")
+        if missing_values:
+            errors.append(f"missing allowed values: {', '.join(missing_values)}")
+        if errors:
+            raise ValueError("Model prompt taxonomy coverage failed: " + "; ".join(errors))
+
     def validate(self, value: object) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise AnnotationValidationError(["Annotation must be a JSON object."])

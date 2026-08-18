@@ -1,6 +1,6 @@
 import { getDataset } from "../../../../lib/server/dataset";
 import { getSql } from "../../../../lib/server/db";
-import { loadReliabilityStats } from "../../../../lib/server/admin-metrics";
+import { loadAdminDashboardMetrics } from "../../../../lib/server/admin-metrics";
 import { json, publicError } from "../../../../lib/server/request";
 import { ensureSchema } from "../../../../lib/server/schema";
 
@@ -17,12 +17,12 @@ export async function GET(request) {
       return json(404, { error: "The requested dataset is not active." });
     }
     await ensureSchema();
-    const reliability = await loadReliabilityStats(getSql(), datasetId);
+    const metrics = await loadAdminDashboardMetrics(getSql(), dataset);
     return json(200, {
-      reliability,
+      ...metrics,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    return publicError(error, "Reliability metrics could not be loaded.");
+    return publicError(error, "Administrative metrics could not be loaded.");
   }
 }

@@ -1,16 +1,42 @@
-# RCQ Barney evaluation
+# RCQ LLM evaluation
 
-This sibling package applies the same 24-field taxonomy used by clinician reviewers to every query through the lab's self-hosted **Barney** model. It runs separately from `clinical_eval_platform/`; neither Vercel nor the browser application calls the cluster endpoint.
+This sibling package applies the same 24-field taxonomy used by clinician reviewers to every query through either the lab's self-hosted **Barney** model or the **Claude API**. It runs separately from `clinical_eval_platform/`; neither Vercel nor the browser application calls either model endpoint.
 
-The entire folder is excluded by the repository-level `.vercelignore`. Keep the Barney URL and NetID in the local/cluster `.env`; do not add those variables to the Vercel project.
+The entire folder is excluded by the repository-level `.vercelignore`. Keep API credentials in a local/cluster `.env`; do not add them to the Vercel project.
 
-The runner uses the repository-level `prompt.txt` verbatim as its one canonical system prompt. Each request adds only:
+The repository-level `prompt.txt` remains the canonical clinician codebook. By default, the runner uses `llm_eval/prompt_compact.txt`, a versioned semantic compression that preserves the same field definitions, precedence rules, boundary cases, hard constraints, and calibration examples while removing human-facing and output-format duplication. Each request adds only:
 
 ```text
 Question:  <verbatim query text>
 ```
 
-The model must return one JSON object containing exactly the same 24 fields and allowed values as the clinician portal. The checked-in `annotation_schema.json` is tested against the web application's taxonomy, so CI fails if the two contracts drift.
+The model must return one JSON object containing exactly the same 24 fields and allowed values as the clinician portal. Claude uses native JSON Schema output; Barney uses prompt enforcement with optional OpenAI-compatible JSON mode. Every response is independently validated against the checked-in `annotation_schema.json`, which is tested against the web application's taxonomy so CI fails if the two contracts drift.
+
+`prompt_contract.json` pins both prompt hashes and pairs critical-rule anchors across the human and compact editions. Tests also require every schema field and exact categorical value to occur in the compact prompt. Therefore any edit to the clinician codebook requires an intentional review and update of the model edition. The run manifest records the actual model-prompt hash, so outputs from the full and compact prompts cannot be mixed. For a deliberate comparison against the verbatim clinician codebook, pass `--prompt ../prompt.txt` and choose a distinct output path.
+
+## Claude setup and smoke test
+
+Create `llm_eval/.env` (or use the repository-level `.env`) with:
+
+```dotenv
+ANTHROPIC_API_KEY=your_anthropic_api_key
+```
+
+Then install and send exactly one query:
+
+```bash
+cd RCQ-annotation/llm_eval
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+rcq-llm-eval --provider anthropic --limit 1 --output outputs/claude_smoke.jsonl
+```
+
+The Claude default is the pinned `claude-sonnet-5` model ID. Its provider-default sampling settings are used because Sonnet 5 does not accept temperature overrides. Extended thinking is explicitly disabled for this bounded classification workload so the model cannot spend the 1,200-token output allowance on hidden reasoning before producing the required JSON. The shared system prompt uses Anthropic's five-minute ephemeral prompt cache; exact uncached, cache-write, cache-read, and output usage is recorded. These settings are also included in the run fingerprint. Use `--model` to make an intentional model change. Output goes to `outputs/claude_predictions.jsonl` by default and is never mixed with Barney output.
+
+The Claude planner includes the serialized JSON Schema and uses a conservative Sonnet-specific token ratio. With the current compact prompt and dataset it estimates about 11,977 tokens per request and plans four concurrent requests (about 47,908 tokens in flight) under the 50,000-token ceiling; raise `--token-budget` only when your Anthropic account limits and study budget support it.
+
+Only de-identified queries should be submitted unless your institution has separately approved the account and workflow for sensitive data. Query text is not duplicated into local result files unless `--include-query-text` is explicitly set.
 
 ## BigPurple setup
 
@@ -20,7 +46,7 @@ Barney is reachable only from inside the cluster. On a compute node:
 cd RCQ-annotation/llm_eval
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install .
 mkdir -p outputs
 ```
 
@@ -40,22 +66,22 @@ The private `real_chat_sample.csv` is not in Git, so transfer it to the reposito
 From `llm_eval/`:
 
 ```bash
-rcq-llm-eval --dry-run
+rcq-llm-eval --provider barney --dry-run
 ```
 
-For the current 100-query dataset and v2.1 prompt, the default planner estimates approximately 9,942 tokens per request and chooses five concurrent requests: roughly 49,710 tokens in flight, below the 50,000-token fair-use target. The calculation uses the longest pending query, `max_tokens`, and the lab's conservative four-characters-per-token approximation.
+For the current 100-query dataset and compact v2.1 prompt, the default Barney planner estimates approximately 7,457 tokens per request and chooses six concurrent requests: roughly 44,742 tokens in flight, below the 50,000-token fair-use target. The calculation uses the longest pending query, `max_tokens`, and the lab's conservative four-characters-per-token approximation.
 
 ## Run
 
 ```bash
-rcq-llm-eval
+rcq-llm-eval --provider barney
 ```
 
 Defaults:
 
-- model: `Barney`;
+- provider/model: `barney` / `Barney`;
 - input: repository-level `real_chat_sample.csv`;
-- prompt: repository-level `prompt.txt`;
+- prompt: `llm_eval/prompt_compact.txt` (semantic contract pinned to repository-level `prompt.txt`);
 - output: `llm_eval/outputs/barney_predictions.jsonl`;
 - maximum completion: 1,200 tokens;
 - token budget: 50,000 tokens in flight;
@@ -94,6 +120,9 @@ Useful options:
 # Five-query smoke test; use a separate output so it cannot mix with the full run.
 rcq-llm-eval --limit 5 --output outputs/barney_smoke.jsonl
 
+# Compare the verbatim clinician prompt without mixing it into compact-prompt output.
+rcq-llm-eval --provider anthropic --prompt ../prompt.txt --limit 5 --output outputs/claude_full_prompt_smoke.jsonl
+
 # One or more stable query IDs.
 rcq-llm-eval --query-id 36978 --query-id 36969 --output outputs/barney_selected.jsonl
 
@@ -103,7 +132,7 @@ rcq-llm-eval --json-mode --output outputs/barney_json_mode.jsonl
 
 ## Tests
 
-The tests do not contact Barney:
+The tests do not contact Barney or Anthropic:
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v

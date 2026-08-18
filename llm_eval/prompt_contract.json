@@ -1,0 +1,113 @@
+{
+  "schema_version": "v2.1",
+  "model_prompt_edition": "v2.1-compact.1",
+  "canonical_prompt_sha256": "8f25c94c2d90b597a8f36a21edc7ead6e411a2b44db8c10f6514027b0df9b3ea",
+  "compact_prompt_sha256": "e9e7d032912880df9f1c67e5b493f8ca0f34701ba78dd88a45a690e90ad04f88",
+  "required_rules": [
+    {
+      "id": "literal_input_only",
+      "canonical_anchor": "Use only the query text. Do not assume facts that are not stated",
+      "compact_anchor": "Use only the query text. Do not infer unstated facts"
+    },
+    {
+      "id": "independent_fields",
+      "canonical_anchor": "Judge each field independently",
+      "compact_anchor": "Judge fields independently"
+    },
+    {
+      "id": "context_or",
+      "canonical_anchor": "needs_context = 1 if and only if at least one of ctx_patient, ctx_institutional, ctx_evidence = 1",
+      "compact_anchor": "needs_context = 1 iff any of ctx_patient, ctx_institutional, or ctx_evidence = 1"
+    },
+    {
+      "id": "evidence_implication",
+      "canonical_anchor": "ctx_evidence = 1 implies evidence_dependent = 1",
+      "compact_anchor": "ctx_evidence = 1 requires evidence_dependent = 1"
+    },
+    {
+      "id": "medicine_division_conditional",
+      "canonical_anchor": "medicine_division = Not applicable if and only if clinical_domain is anything other than Medicine",
+      "compact_anchor": "medicine_division = Not applicable iff clinical_domain is not Medicine"
+    },
+    {
+      "id": "artifact_vs_format",
+      "canonical_anchor": "Artifact vs formatted answer",
+      "compact_anchor": "A true artifact intended for the record, a patient, or another person"
+    },
+    {
+      "id": "drug_vs_management",
+      "canonical_anchor": "Drug vs Treatment hinge test",
+      "compact_anchor": "Agent choice, dose, duration, or route for a condition"
+    },
+    {
+      "id": "three_test_tasks",
+      "canonical_anchor": "Test knowledge, three ways",
+      "compact_anchor": "Supplied result/report → Test & result interpretation"
+    },
+    {
+      "id": "domain_precedence",
+      "canonical_anchor": "Work down the precedence ladder and stop at the first step that applies",
+      "compact_anchor": "Work down this precedence ladder and stop at the first applicable step"
+    },
+    {
+      "id": "ambiguous_medication_owner",
+      "canonical_anchor": "multiple common indications spanning services or Medicine divisions and none is stated",
+      "compact_anchor": "multiple common indications span services or Medicine divisions and none is stated"
+    },
+    {
+      "id": "side_effect_domain",
+      "canonical_anchor": "The organ of a side effect never sets the domain",
+      "compact_anchor": "The organ affected by a side effect never sets domain"
+    },
+    {
+      "id": "population_must_be_explicit",
+      "canonical_anchor": "Population steps (1, 3, 4) require the query itself to indicate the population",
+      "compact_anchor": "Population-based steps require the query itself to state a patient, age, or pediatric/pregnancy framing"
+    },
+    {
+      "id": "intent_tiebreaks",
+      "canonical_anchor": "an explicit yes/no confirmation cue makes Verification outrank all others",
+      "compact_anchor": "explicit confirmation makes Verification outrank everything"
+    },
+    {
+      "id": "ama_drafting_priority",
+      "canonical_anchor": "when a drafting request embeds another function",
+      "compact_anchor": "Drafting wins when it embeds another function"
+    },
+    {
+      "id": "nonclinical_risk_cap",
+      "canonical_anchor": "Purely non-clinical harms (financial, legal, privacy) cap at Moderate",
+      "compact_anchor": "Nonclinical financial/legal/privacy harm cannot exceed Moderate"
+    },
+    {
+      "id": "route_order",
+      "canonical_anchor": "Direct < Retrieval < Clarification < Escalation < Abstention",
+      "compact_anchor": "Direct < Retrieval < Clarification < Escalation < Abstention"
+    },
+    {
+      "id": "high_stakes_not_automatic_escalation",
+      "canonical_anchor": "High stakes alone do not force Escalation",
+      "compact_anchor": "High stakes alone do not force Escalation"
+    },
+    {
+      "id": "lab_imaging_asymmetry",
+      "canonical_anchor": "labs count only as results; imaging counts on any reference",
+      "compact_anchor": "labs count only as results; imaging counts on any reference"
+    },
+    {
+      "id": "query_form_function",
+      "canonical_anchor": "Classify by function, not punctuation",
+      "compact_anchor": "Classify function, not punctuation"
+    },
+    {
+      "id": "calibration_apixaban",
+      "canonical_anchor": "68M with AF, CrCl 28",
+      "compact_anchor": "68M with AF, CrCl 28"
+    },
+    {
+      "id": "calibration_discharge",
+      "canonical_anchor": "Please write discharge instructions in Spanish for a 4-year-old",
+      "compact_anchor": "Please write discharge instructions in Spanish for a 4-year-old"
+    }
+  ]
+}

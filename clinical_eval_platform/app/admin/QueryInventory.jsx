@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const PAGE_SIZE = 20;
 
-export default function QueryInventory({ queries, requiredReviews }) {
+export default function QueryInventory({ queries, requiredReviews, llmAvailable = false }) {
   const [search, setSearch] = useState("");
   const [coverageFilter, setCoverageFilter] = useState("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -76,6 +76,7 @@ export default function QueryInventory({ queries, requiredReviews }) {
                 <span className={query.completedReviews === requiredReviews ? "query-inventory__complete" : ""}>
                   {query.completedReviews}/{requiredReviews} complete
                 </span>
+                {llmAvailable ? <span className={query.llmHumanAgreement == null ? "" : "query-inventory__llm"}>{query.llmHumanAgreement == null ? "LLM awaiting review" : `LLM ${Math.round(query.llmHumanAgreement * 100)}% · n=${query.llmHumanReviews}`}</span> : null}
               </span>
             </summary>
             <div className="query-inventory__full-text">{query.question}</div>

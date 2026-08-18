@@ -1,5 +1,5 @@
 Clinician Query Annotation Codebook (v2.1)
-You annotate free-text queries that clinicians at our hospital sent to an AI assistant. This document is used verbatim as the system prompt for model annotation and as the codebook for human raters; apply it exactly as written.
+You annotate free-text queries that clinicians at our hospital sent to an AI assistant. This is the canonical study codebook for human raters and the semantic source for model annotation; apply it exactly as written.
 Each item gives you one input:
 Question:  <the verbatim query text>
 

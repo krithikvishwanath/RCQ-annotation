@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .dataset import Query
-from .prompting import build_messages
+from .providers import CompletionProvider
 from .schema import AnnotationSchema, AnnotationValidationError, parse_json_response
 
 
@@ -17,39 +17,38 @@ class TokenUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    uncached_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     def add(self, other: "TokenUsage") -> None:
         self.prompt_tokens += other.prompt_tokens
         self.completion_tokens += other.completion_tokens
         self.total_tokens += other.total_tokens
+        self.uncached_input_tokens += other.uncached_input_tokens
+        self.cache_creation_input_tokens += other.cache_creation_input_tokens
+        self.cache_read_input_tokens += other.cache_read_input_tokens
 
     def as_dict(self) -> dict[str, int]:
         return {
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
+            "uncached_input_tokens": self.uncached_input_tokens,
+            "cache_creation_input_tokens": self.cache_creation_input_tokens,
+            "cache_read_input_tokens": self.cache_read_input_tokens,
         }
 
 
 @dataclass(frozen=True)
 class BatchConfig:
+    provider: str
     model: str
     max_tokens: int
-    temperature: float
+    temperature: float | None
     max_retries: int
-    json_mode: bool
     include_query_text: bool
     prompt_sha256: str
-
-
-def _response_usage(response: Any) -> TokenUsage:
-    usage = getattr(response, "usage", None)
-    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-    total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
-    if not total_tokens:
-        total_tokens = prompt_tokens + completion_tokens
-    return TokenUsage(prompt_tokens, completion_tokens, total_tokens)
 
 
 def _status_code(error: Exception) -> int | None:
@@ -80,7 +79,7 @@ def _safe_error(error: Exception) -> str:
 
 async def evaluate_query(
     *,
-    client: Any,
+    provider: CompletionProvider,
     query: Query,
     system_prompt: str,
     schema: AnnotationSchema,
@@ -92,34 +91,41 @@ async def evaluate_query(
     total_usage = TokenUsage()
     last_error: Exception | None = None
     error_kind = "unknown"
+    last_response_id = ""
+    last_response_model = ""
+    last_finish_reason = ""
     max_attempts = config.max_retries + 1
 
     for attempt in range(1, max_attempts + 1):
         if abort_event.is_set():
             return None
         try:
-            request: dict[str, Any] = {
-                "model": config.model,
-                "messages": build_messages(system_prompt, query),
-                "temperature": config.temperature,
-                "max_tokens": config.max_tokens,
-            }
-            if config.json_mode:
-                request["response_format"] = {"type": "json_object"}
-
             async with semaphore:
                 if abort_event.is_set():
                     return None
-                response = await client.chat.completions.create(**request)
+                completion = await provider.complete(
+                    model=config.model,
+                    system_prompt=system_prompt,
+                    query=query,
+                    schema=schema,
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                )
 
-            total_usage.add(_response_usage(response))
-            if not getattr(response, "choices", None):
-                raise ValueError("The model response did not contain a completion choice.")
-            choice = response.choices[0]
-            content = getattr(getattr(choice, "message", None), "content", None)
-            if not isinstance(content, str):
-                raise ValueError("The model response did not contain text content.")
-            parsed, parse_mode = parse_json_response(content)
+            last_response_id = completion.response_id
+            last_response_model = completion.response_model
+            last_finish_reason = completion.finish_reason
+            total_usage.add(
+                TokenUsage(
+                    prompt_tokens=completion.prompt_tokens,
+                    completion_tokens=completion.completion_tokens,
+                    total_tokens=completion.total_tokens,
+                    uncached_input_tokens=completion.uncached_input_tokens,
+                    cache_creation_input_tokens=completion.cache_creation_input_tokens,
+                    cache_read_input_tokens=completion.cache_read_input_tokens,
+                )
+            )
+            parsed, parse_mode = parse_json_response(completion.text)
             annotation = schema.validate(parsed)
 
             record: dict[str, Any] = {
@@ -128,10 +134,11 @@ async def evaluate_query(
                 "query_id": query.query_id,
                 "query_sha256": query.sha256,
                 "annotation": annotation,
+                "provider": config.provider,
                 "model": config.model,
-                "response_model": str(getattr(response, "model", "") or ""),
-                "response_id": str(getattr(response, "id", "") or ""),
-                "finish_reason": str(getattr(choice, "finish_reason", "") or ""),
+                "response_model": completion.response_model,
+                "response_id": completion.response_id,
+                "finish_reason": completion.finish_reason,
                 "prompt_sha256": config.prompt_sha256,
                 "parse_mode": parse_mode,
                 "attempts": attempt,
@@ -163,7 +170,11 @@ async def evaluate_query(
         "status": "error",
         "query_id": query.query_id,
         "query_sha256": query.sha256,
+        "provider": config.provider,
         "model": config.model,
+        "response_model": last_response_model,
+        "response_id": last_response_id,
+        "finish_reason": last_finish_reason,
         "prompt_sha256": config.prompt_sha256,
         "error_type": error_kind,
         "error": _safe_error(last_error or RuntimeError("Unknown evaluation failure.")),
@@ -176,7 +187,7 @@ async def evaluate_query(
 
 async def run_batch(
     *,
-    client: Any,
+    provider: CompletionProvider,
     queries: list[Query],
     system_prompt: str,
     schema: AnnotationSchema,
@@ -189,7 +200,7 @@ async def run_batch(
     tasks = [
         asyncio.create_task(
             evaluate_query(
-                client=client,
+                provider=provider,
                 query=query,
                 system_prompt=system_prompt,
                 schema=schema,

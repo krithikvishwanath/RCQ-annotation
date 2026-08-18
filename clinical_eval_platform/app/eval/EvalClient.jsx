@@ -11,6 +11,11 @@ import {
   TAXONOMY_GROUPS,
 } from "../../lib/taxonomy";
 import { ADDITIONAL_ASSIGNMENT_COUNT, INITIAL_ASSIGNMENT_COUNT } from "../../lib/study-config";
+import {
+  isTypingTarget,
+  optionForShortcut,
+  optionShortcut,
+} from "../../lib/keyboard-shortcuts";
 
 const STORAGE = {
   sessionId: "rcqTaxonomy.sessionId",
@@ -140,7 +145,12 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
   const describedBy = helpOpen ? `${field.key}-help` : undefined;
 
   return (
-    <fieldset id={`field-${field.key}`} tabIndex={-1} className={`taxonomy-field ${value != null ? "taxonomy-field--answered" : ""}`}>
+    <fieldset
+      id={`field-${field.key}`}
+      data-field-key={field.key}
+      tabIndex={-1}
+      className={`taxonomy-field ${value != null ? "taxonomy-field--answered" : ""}`}
+    >
       <legend className="sr-only">{field.label}</legend>
       <div className="taxonomy-field__heading">
         <span className="field-number">{field.number}</span>
@@ -178,19 +188,24 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
         </div>
       ) : !useSelect ? (
         <div className={`choice-grid ${field.type === "binary" ? "choice-grid--binary" : "choice-grid--options"}`}>
-          {field.options.map((option) => (
-            <button
-              type="button"
-              key={String(option.value)}
-              className={`choice-button ${Object.is(value, option.value) ? "choice-button--selected" : ""}`}
-              aria-pressed={Object.is(value, option.value)}
-              aria-describedby={describedBy}
-              onClick={() => onChange(option.value)}
-            >
-              {field.type === "binary" ? <span aria-hidden="true">{option.value === 1 ? "✓" : "—"}</span> : null}
-              {option.label}
-            </button>
-          ))}
+          {field.options.map((option, index) => {
+            const shortcut = optionShortcut(field, option, index);
+            return (
+              <button
+                type="button"
+                key={String(option.value)}
+                className={`choice-button ${shortcut ? "choice-button--shortcut" : ""} ${Object.is(value, option.value) ? "choice-button--selected" : ""}`}
+                aria-pressed={Object.is(value, option.value)}
+                aria-describedby={describedBy}
+                aria-keyshortcuts={shortcut || undefined}
+                onClick={() => onChange(option.value)}
+              >
+                {field.type === "binary" ? <span aria-hidden="true">{option.value === 1 ? "✓" : "—"}</span> : null}
+                {option.label}
+                {shortcut ? <kbd className="choice-shortcut" aria-hidden="true">{shortcut}</kbd> : null}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <select
@@ -208,6 +223,82 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
         </select>
       )}
     </fieldset>
+  );
+}
+
+function KeyboardShortcutsDialog({ open, onClose }) {
+  const closeRef = useRef(null);
+
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
+
+  if (!open) return null;
+
+  function trapFocus(event) {
+    if (event.key !== "Tab") return;
+    const dialog = event.currentTarget;
+    const focusable = Array.from(dialog.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"))
+      .filter((element) => !element.disabled);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
+  const shortcuts = [
+    { keys: ["J", "K"], label: "Focus the next or previous answer field" },
+    { keys: ["1–9", "0"], label: "Choose the matching numbered option" },
+    { keys: ["Y", "N"], label: "Answer Yes or No on a binary field" },
+    { keys: ["[", "]"], label: "Move back or forward one section" },
+    { keys: ["U"], label: "Jump to the first unanswered field" },
+    { keys: ["C"], label: "Copy the current query" },
+    { keys: ["B"], label: "Open the codebook" },
+    { keys: ["?"], label: "Open this shortcut guide" },
+    { keys: ["Esc"], label: "Close an open guide" },
+  ];
+
+  return (
+    <>
+      <button className="keyboard-dialog-scrim" aria-label="Close keyboard shortcuts" onClick={onClose} />
+      <section
+        className="keyboard-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="keyboard-dialog-title"
+        aria-describedby="keyboard-dialog-description"
+        onKeyDown={trapFocus}
+      >
+        <div className="keyboard-dialog__header">
+          <div><p className="eyebrow">Faster annotation</p><h2 id="keyboard-dialog-title">Keyboard shortcuts</h2></div>
+          <button ref={closeRef} className="icon-button" onClick={onClose} aria-label="Close keyboard shortcuts">×</button>
+        </div>
+        <p id="keyboard-dialog-description" className="keyboard-dialog__intro">
+          Press J or K to focus a field, then use the key shown on an answer. A keyboard answer advances to the next field automatically.
+        </p>
+        <dl className="keyboard-shortcut-list">
+          {shortcuts.map((shortcut) => (
+            <div key={shortcut.label}>
+              <dt>{shortcut.keys.map((key) => <kbd key={key}>{key}</kbd>)}</dt>
+              <dd>{shortcut.label}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="keyboard-dialog__note">Shortcuts pause while you type in notes or search. In a dropdown, J/K still moves to adjacent fields.</p>
+      </section>
+    </>
+  );
+}
+
+function interactiveFields(labels) {
+  return TAXONOMY_FIELDS.filter(
+    (field) => field.type !== "derived" &&
+      (field.key !== "medicine_division" || labels.clinical_domain === "Medicine"),
   );
 }
 
@@ -347,6 +438,7 @@ export default function EvalClient() {
   const [activeGroup, setActiveGroup] = useState(TAXONOMY_GROUPS[0].id);
   const [openHelp, setOpenHelp] = useState(null);
   const [codebookOpen, setCodebookOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [assignmentError, setAssignmentError] = useState("");
   const [remainingQueries, setRemainingQueries] = useState(0);
@@ -354,6 +446,8 @@ export default function EvalClient() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [copyStatus, setCopyStatus] = useState("");
+  const shortcutTriggerRef = useRef(null);
+  const shortcutReturnFocusRef = useRef(null);
 
   const endSession = useCallback(() => {
     Object.values(STORAGE).forEach(storageRemove);
@@ -698,6 +792,50 @@ export default function EvalClient() {
     [updateCurrent],
   );
 
+  const openShortcuts = useCallback(() => {
+    shortcutReturnFocusRef.current = document.activeElement;
+    setShortcutsOpen(true);
+  }, []);
+
+  const closeShortcuts = useCallback(() => {
+    setShortcutsOpen(false);
+    const returnTarget = shortcutReturnFocusRef.current;
+    window.setTimeout(() => {
+      if (returnTarget?.isConnected && returnTarget !== document.body) returnTarget.focus();
+      else shortcutTriggerRef.current?.focus();
+    }, 0);
+  }, []);
+
+  const focusField = useCallback((field) => {
+    if (!field) return;
+    if (field.group !== activeGroup) {
+      setActiveGroup(field.group);
+      setOpenHelp(null);
+    }
+    window.setTimeout(() => {
+      const element = document.getElementById(`field-${field.key}`);
+      const focusTarget = element?.querySelector("select") || element;
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      focusTarget?.focus({ preventScroll: true });
+    }, 0);
+  }, [activeGroup]);
+
+  const focusAdjacentField = useCallback((direction, sourceTarget = null) => {
+    const fields = interactiveFields(currentRecord.labels);
+    const sourceKey = sourceTarget?.closest?.("[data-field-key]")?.dataset.fieldKey;
+    if (!sourceKey) {
+      const visibleFields = fields.filter((field) => field.group === activeGroup);
+      const searchOrder = direction > 0 ? visibleFields : visibleFields.slice().reverse();
+      const unanswered = searchOrder.find((field) => currentRecord.labels[field.key] == null);
+      focusField(unanswered || (direction > 0 ? visibleFields[0] : visibleFields.at(-1)));
+      return;
+    }
+
+    const index = fields.findIndex((field) => field.key === sourceKey);
+    const target = fields[index + direction];
+    if (target) focusField(target);
+  }, [activeGroup, currentRecord.labels, focusField]);
+
   const selectQuestion = useCallback((index) => {
     setQuestionIndex(index);
     setActiveGroup(TAXONOMY_GROUPS[0].id);
@@ -730,18 +868,11 @@ export default function EvalClient() {
   }, [activeGroup, currentProgress.isComplete, questionIndex, questions.length]);
 
   const goToFirstUnanswered = useCallback(() => {
-    const field = TAXONOMY_FIELDS.find(
+    const field = interactiveFields(currentRecord.labels).find(
       (candidate) => currentRecord.labels[candidate.key] == null,
     );
-    if (!field) return;
-    setActiveGroup(field.group);
-    setOpenHelp(null);
-    window.setTimeout(() => {
-      const element = document.getElementById(`field-${field.key}`);
-      element?.scrollIntoView({ behavior: "smooth", block: "center" });
-      element?.focus({ preventScroll: true });
-    }, 0);
-  }, [currentRecord.labels]);
+    focusField(field);
+  }, [currentRecord.labels, focusField]);
 
   const claimMore = useCallback(async () => {
     if (!session || !dataset || session.mode === "local") return;
@@ -784,7 +915,7 @@ export default function EvalClient() {
     }
   }, [dataset, handleUnauthorized, hasClaimedInitial, session]);
 
-  async function copyQuery() {
+  const copyQuery = useCallback(async () => {
     if (!currentQuestion) return;
     try {
       await navigator.clipboard.writeText(currentQuestion.question);
@@ -793,7 +924,85 @@ export default function EvalClient() {
     } catch {
       setCopyStatus("Copy unavailable");
     }
-  }
+  }, [currentQuestion]);
+
+  useEffect(() => {
+    const handleShortcut = (event) => {
+      if (event.isComposing || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (shortcutsOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeShortcuts();
+        }
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const selectNavigation = event.target?.tagName === "SELECT" && (key === "j" || key === "k");
+      if (codebookOpen || (isTypingTarget(event.target) && !selectNavigation)) return;
+
+      if (key === "?") {
+        event.preventDefault();
+        openShortcuts();
+        return;
+      }
+      if (key === "b") {
+        event.preventDefault();
+        setCodebookOpen(true);
+        return;
+      }
+      if (key === "c") {
+        event.preventDefault();
+        copyQuery();
+        return;
+      }
+      if (key === "u") {
+        event.preventDefault();
+        goToFirstUnanswered();
+        return;
+      }
+      if (key === "j" || key === "k") {
+        event.preventDefault();
+        focusAdjacentField(key === "j" ? 1 : -1, event.target);
+        return;
+      }
+      if (key === "[" || key === "]") {
+        event.preventDefault();
+        if (key === "[") stepBack();
+        else stepForward();
+        return;
+      }
+
+      const fieldKey = event.target?.closest?.("[data-field-key]")?.dataset.fieldKey;
+      const field = TAXONOMY_FIELDS.find((candidate) => candidate.key === fieldKey);
+      if (!field || !interactiveFields(currentRecord.labels).some((candidate) => candidate.key === field.key)) return;
+      const option = optionForShortcut(field, key);
+      if (!option) return;
+
+      event.preventDefault();
+      updateLabel(field.key, option.value);
+      const nextLabels = applyDerivedRules({ ...currentRecord.labels, [field.key]: option.value });
+      const fields = interactiveFields(nextLabels);
+      const nextField = fields[fields.findIndex((candidate) => candidate.key === field.key) + 1];
+      if (nextField) focusField(nextField);
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [
+    closeShortcuts,
+    codebookOpen,
+    copyQuery,
+    currentRecord.labels,
+    focusAdjacentField,
+    focusField,
+    goToFirstUnanswered,
+    openShortcuts,
+    shortcutsOpen,
+    stepBack,
+    stepForward,
+    updateLabel,
+  ]);
 
   if (loadError) {
     return <main className="status-page"><div className="status-card"><p className="eyebrow">Dataset error</p><h1>Annotation cannot start</h1><p>{loadError}</p><button className="button button--secondary" onClick={() => router.push("/")}>Return home</button></div></main>;
@@ -846,7 +1055,15 @@ export default function EvalClient() {
         </div>
         <div className="header-actions">
           <div className={`save-state save-state--${saveStatus}`}><span />{saveLabel}</div>
-          <button className="button button--secondary button--compact" onClick={() => setCodebookOpen(true)}>Open codebook</button>
+          <button
+            ref={shortcutTriggerRef}
+            className="button button--secondary button--compact shortcut-trigger"
+            aria-keyshortcuts="?"
+            onClick={openShortcuts}
+          >
+            Shortcuts <kbd aria-hidden="true">?</kbd>
+          </button>
+          <button className="button button--secondary button--compact" aria-keyshortcuts="B" onClick={() => setCodebookOpen(true)}>Open codebook</button>
           <button className="user-chip" onClick={endSession} title="End this browser session"><span>{session.name.slice(0, 1).toUpperCase()}</span><span>{session.name}<small>End session</small></span></button>
         </div>
       </header>
@@ -893,7 +1110,7 @@ export default function EvalClient() {
               <div className="query-card__meta">
                 <div><span>Query {questionIndex + 1} of {questions.length}</span><strong id="query-heading">{currentQuestion.id}</strong></div>
                 <div className="query-card__badges">
-                  <button onClick={copyQuery}>{copyStatus || "Copy query"}</button>
+                  <button aria-keyshortcuts="C" onClick={copyQuery}>{copyStatus || "Copy query"}</button>
                 </div>
               </div>
               <blockquote>{currentQuestion.question}</blockquote>
@@ -965,7 +1182,7 @@ export default function EvalClient() {
                     <strong>{currentProgress.total - currentProgress.completed} fields remain.</strong>
                     <span>Finish the unanswered fields before moving to the next query.</span>
                   </div>
-                  <button type="button" onClick={goToFirstUnanswered}>Go to first unanswered</button>
+                  <button type="button" aria-keyshortcuts="U" onClick={goToFirstUnanswered}>Go to first unanswered</button>
                 </div>
               ) : null}
 
@@ -975,9 +1192,9 @@ export default function EvalClient() {
             </section>
 
             <div className="section-navigation">
-              <button className="button button--secondary" onClick={stepBack} disabled={groupIndex === 0 && questionIndex === 0}>← Back</button>
+              <button className="button button--secondary" aria-keyshortcuts="[" onClick={stepBack} disabled={groupIndex === 0 && questionIndex === 0}>← Back</button>
               <div><span>Query completeness</span><strong>{currentProgress.completed} / {currentProgress.total}</strong></div>
-              <button className="button button--primary" onClick={stepForward} disabled={forwardDisabled || (lastGroup && lastQuestion)}>
+              <button className="button button--primary" aria-keyshortcuts="]" onClick={stepForward} disabled={forwardDisabled || (lastGroup && lastQuestion)}>
                 {!lastGroup ? "Next section →" : !currentProgress.isComplete ? "Complete required fields" : lastQuestion ? "Final query complete" : "Next query →"}
               </button>
             </div>
@@ -986,6 +1203,7 @@ export default function EvalClient() {
       </div>
 
       <CodebookDrawer open={codebookOpen} onClose={() => setCodebookOpen(false)} session={session} />
+      <KeyboardShortcutsDialog open={shortcutsOpen} onClose={closeShortcuts} />
     </div>
   );
 }
