@@ -57,6 +57,16 @@ export default function LiveStudyDashboard({ datasetId, totalQueries, requiredRe
   const completionPercent = summary.total_slots
     ? Math.round((summary.complete / summary.total_slots) * 100)
     : 0;
+  const llmEvaluation = metrics.llmEvaluation || {};
+  const concordanceAvailable =
+    llmEvaluation.available &&
+    llmEvaluation.pairedReviews > 0 &&
+    llmEvaluation.overallAgreement != null;
+  const concordanceNote = !llmEvaluation.available
+    ? "Import the Claude run to calculate"
+    : !llmEvaluation.pairedReviews
+      ? "Awaiting the first completed clinician review"
+      : `Across ${llmEvaluation.pairedReviews} completed clinician ${llmEvaluation.pairedReviews === 1 ? "review" : "reviews"} · live`;
 
   return (
     <>
@@ -68,6 +78,7 @@ export default function LiveStudyDashboard({ datasetId, totalQueries, requiredRe
         <div><span>Annotators</span><strong>{summary.annotators || 0}</strong><small>with saved work</small></div>
         <div><span>Assigned slots</span><strong>{summary.assigned_slots || 0}<em> / {summary.total_slots || 0}</em></strong><small>{requiredReviews} reviews per query</small></div>
         <div><span>Completed reviews</span><strong>{summary.complete || 0}<em> / {summary.total_slots || 0}</em></strong><small>{completionPercent}% complete</small></div>
+        <div className="admin-stat--concordance"><span>Clinician–Claude concordance</span><strong>{concordanceAvailable ? `${Math.round(llmEvaluation.overallAgreement * 100)}%` : "—"}</strong><small>{concordanceNote}</small></div>
       </section>
 
       <div className="admin-grid">

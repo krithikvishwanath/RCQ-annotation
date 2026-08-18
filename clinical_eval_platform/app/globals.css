@@ -2135,7 +2135,7 @@ button:disabled {
 
 .admin-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   margin-bottom: 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2178,6 +2178,14 @@ button:disabled {
 .admin-stats small {
   color: var(--ink-muted);
   font-size: 9px;
+}
+
+.admin-stats .admin-stat--concordance {
+  background: var(--violet-50);
+}
+
+.admin-stats .admin-stat--concordance strong {
+  color: var(--violet-800);
 }
 
 .admin-grid {
@@ -2998,12 +3006,19 @@ button:disabled {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .admin-stats > div:nth-child(2) {
+  .admin-stats > div {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .admin-stats > div:nth-child(even) {
     border-right: 0;
   }
 
-  .admin-stats > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
+  .admin-stats > div:last-child {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 0;
   }
 
   .admin-grid {
@@ -3104,6 +3119,11 @@ button:disabled {
   .admin-stats > div {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .admin-stats > div:last-child {
+    grid-column: auto;
+    border-bottom: 0;
   }
 
   .reset-control > div {

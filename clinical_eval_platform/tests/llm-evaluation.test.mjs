@@ -116,3 +116,21 @@ test("human-model agreement is paired by query and excludes derived fields", () 
   assert.deepEqual(result.fields.map((field) => field.key), ["field_a", "field_b"]);
   assert.equal(result.queries[0].humanReviews, 2);
 });
+
+test("human-model agreement is available after the first completed clinician review", () => {
+  const result = calculateLlmAgreement([
+    {
+      question_id: "q1",
+      human_labels: { task: "same", domain: "human" },
+      llm_labels: { task: "same", domain: "model" },
+    },
+  ], [
+    { key: "task", number: "1", label: "Task", type: "choice" },
+    { key: "domain", number: "2", label: "Domain", type: "choice" },
+  ]);
+
+  assert.equal(result.pairedReviews, 1);
+  assert.equal(result.pairedQueries, 1);
+  assert.equal(result.comparisons, 2);
+  assert.equal(result.overallAgreement, 0.5);
+});
