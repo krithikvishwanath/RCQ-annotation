@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -25,6 +26,30 @@ class StorageAndConnectionTests(unittest.TestCase):
                 self.assertEqual(store.prepare_manifest(expected)["run_fingerprint"], "same-run")
                 with self.assertRaisesRegex(RuntimeError, "different dataset"):
                     store.prepare_manifest({"run_fingerprint": "different-run"})
+
+    def test_output_store_builds_one_privacy_preserving_import_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "claude_predictions.jsonl"
+            manifest = {
+                "run_fingerprint": "same-run",
+                "selected_query_ids": ["Q1", "Q2"],
+                "created_at": "now",
+            }
+            with OutputStore(output) as store:
+                store.prepare_manifest(manifest)
+                store.append({"status": "ok", "query_id": "Q2", "annotation": {"a": 2}})
+                store.append({"status": "error", "query_id": "Q1"})
+                store.append({"status": "ok", "query_id": "Q1", "annotation": {"a": 1}, "question": "do not copy"})
+                bundle_path = store.write_import_bundle(manifest)
+
+            self.assertEqual(bundle_path.name, "claude_predictions.import.json")
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+            self.assertEqual(bundle["bundle_format"], "rcq_llm_evaluation")
+            self.assertEqual(
+                [record["query_id"] for record in bundle["predictions"]],
+                ["Q1", "Q2"],
+            )
+            self.assertNotIn("question", bundle["predictions"][0])
 
     def test_connection_requires_tracked_gateway_and_real_identity(self) -> None:
         with patch.dict(

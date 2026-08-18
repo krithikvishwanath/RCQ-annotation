@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import {
   calculateLlmAgreement,
+  parseEvaluationBundle,
   parseJsonLines,
   validateLlmImport,
 } from "../lib/llm-evaluation.js";
@@ -58,6 +59,22 @@ function fixture() {
 test("JSONL parsing accepts a final record without a trailing newline", () => {
   assert.deepEqual(parseJsonLines('{"query_id":"q1"}'), [{ query_id: "q1" }]);
   assert.throws(() => parseJsonLines('{"query_id":'), /line 1/);
+});
+
+test("single-file evaluation bundles contain a manifest and predictions", () => {
+  const input = fixture();
+  const parsed = parseEvaluationBundle({
+    bundle_format: "rcq_llm_evaluation",
+    bundle_version: 1,
+    manifest: input.manifest,
+    predictions: input.records,
+  });
+  assert.equal(parsed.manifest.run_fingerprint, input.manifest.run_fingerprint);
+  assert.equal(parsed.records.length, 1);
+  assert.throws(
+    () => parseEvaluationBundle({ bundle_format: "wrong", bundle_version: 1 }),
+    /not an RCQ LLM evaluation bundle/,
+  );
 });
 
 test("LLM import validates dataset identity and the exact taxonomy", () => {

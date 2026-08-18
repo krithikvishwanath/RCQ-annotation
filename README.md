@@ -111,12 +111,11 @@ The admin portal is at `/admin`. It reports unanimous agreement and unweighted F
 
 ### Importing an LLM evaluation run
 
-After deploying the application changes, open `/admin` and find **Claude annotations and clinician concordance**. Choose both files from the local Git-ignored `llm_eval/outputs/` directory, then press **Validate and import**:
+After deploying the application changes, open `/admin` and find **Claude annotations and clinician concordance**. Choose the single portable file from the local Git-ignored `llm_eval/outputs/` directory, then press **Validate and import**:
 
-- `claude_predictions.jsonl.manifest.json`
-- `claude_predictions.jsonl`
+- `claude_predictions.import.json`
 
-The admin endpoint is protected by the same Basic Authentication as the rest of `/admin`. It validates the manifest and codebook version, matches every record to the active dataset by stable ID and SHA-256 query hash, requires the exact normalized 24-field schema, and rejects prediction files that contain query text. Only model labels, query IDs/hashes, limited response metadata, and the sanitized run manifest are stored in Neon. Re-importing the same run replaces it transactionally.
+The evaluator still keeps its JSONL and manifest internally so interrupted batches can resume safely, but it automatically packages both into this one import file after a complete run. The admin endpoint is protected by the same Basic Authentication as the rest of `/admin`. It validates the manifest and codebook version, matches every record to the active dataset by stable ID and SHA-256 query hash, requires the exact normalized 24-field schema, and rejects bundles that contain query text. Only model labels, query IDs/hashes, limited response metadata, and the sanitized run manifest are stored in Neon. Re-importing the same run replaces it transactionally.
 
 The model is never treated as an additional clinician in the IRR calculation. The separate human–LLM panel reports descriptive field agreement between each completed clinician annotation and the fixed model annotation for the same query. Query-level model labels load only when an administrator requests them.
 

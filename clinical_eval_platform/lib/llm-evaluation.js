@@ -3,6 +3,8 @@ import { CODEBOOK_VERSION, TAXONOMY_FIELDS, TAXONOMY_KEYS, validateAnnotation } 
 
 export const MAX_LLM_IMPORT_BYTES = 4 * 1024 * 1024;
 export const MAX_LLM_IMPORT_RECORDS = 10_000;
+export const LLM_BUNDLE_FORMAT = "rcq_llm_evaluation";
+export const LLM_BUNDLE_VERSION = 1;
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
@@ -38,6 +40,25 @@ export function parseJsonLines(text) {
     throw new Error(`The predictions file exceeds ${MAX_LLM_IMPORT_RECORDS.toLocaleString()} records.`);
   }
   return records;
+}
+
+export function parseEvaluationBundle(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The evaluation bundle must be a JSON object.");
+  }
+  if (value.bundle_format !== LLM_BUNDLE_FORMAT) {
+    throw new Error("The file is not an RCQ LLM evaluation bundle.");
+  }
+  if (value.bundle_version !== LLM_BUNDLE_VERSION) {
+    throw new Error(`Unsupported evaluation bundle version: ${String(value.bundle_version)}.`);
+  }
+  if (!value.manifest || typeof value.manifest !== "object" || Array.isArray(value.manifest)) {
+    throw new Error("The evaluation bundle is missing its run manifest.");
+  }
+  if (!Array.isArray(value.predictions) || !value.predictions.length) {
+    throw new Error("The evaluation bundle contains no predictions.");
+  }
+  return { manifest: value.manifest, records: value.predictions };
 }
 
 export function validateLlmImport({ manifest, records, dataset }) {
@@ -141,15 +162,6 @@ export function validateLlmImport({ manifest, records, dataset }) {
       `The manifest selects ${selectedIdSet.size} queries, but the predictions file contains ${seenIds.size}.`,
     );
   }
-  const succeeded = manifest.last_run?.succeeded;
-  const failed = manifest.last_run?.failed;
-  if (succeeded != null && parseCount(succeeded, "Manifest succeeded count") !== cleanRecords.length) {
-    throw new Error("The manifest success count does not match the predictions file.");
-  }
-  if (failed != null && parseCount(failed, "Manifest failed count") !== 0) {
-    throw new Error("Runs containing failed predictions cannot be imported as a complete LLM run.");
-  }
-
   return {
     run: {
       runId,

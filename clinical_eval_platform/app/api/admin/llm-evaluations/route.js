@@ -4,7 +4,7 @@ import { loadLlmRunResults } from "../../../../lib/server/admin-metrics";
 import { ensureSchema } from "../../../../lib/server/schema";
 import {
   MAX_LLM_IMPORT_BYTES,
-  parseJsonLines,
+  parseEvaluationBundle,
   validateLlmImport,
 } from "../../../../lib/llm-evaluation";
 import { json, publicError } from "../../../../lib/server/request";
@@ -12,13 +12,13 @@ import { json, publicError } from "../../../../lib/server/request";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function fileFrom(form, key) {
-  const value = form.get(key);
+function bundleFileFrom(form) {
+  const value = form.get("bundle");
   if (!value || typeof value === "string" || typeof value.text !== "function") {
-    throw new Error(`${key === "manifest" ? "Run manifest" : "Predictions"} file is required.`);
+    throw new Error("Evaluation bundle file is required.");
   }
   if (value.size > MAX_LLM_IMPORT_BYTES) {
-    throw new Error(`${key === "manifest" ? "Run manifest" : "Predictions"} exceeds 4 MB.`);
+    throw new Error("Evaluation bundle exceeds 4 MB.");
   }
   return value;
 }
@@ -43,24 +43,19 @@ export async function POST(request) {
   let importValidated = false;
   try {
     const form = await request.formData();
-    const manifestFile = fileFrom(form, "manifest");
-    const predictionsFile = fileFrom(form, "predictions");
-    const [manifestText, predictionsText] = await Promise.all([
-      manifestFile.text(),
-      predictionsFile.text(),
-    ]);
-
-    let manifest;
+    const bundleFile = bundleFileFrom(form);
+    let bundle;
     try {
-      manifest = JSON.parse(manifestText);
+      bundle = JSON.parse(await bundleFile.text());
     } catch {
-      return json(400, { error: "The run manifest is not valid JSON." });
+      return json(400, { error: "The evaluation bundle is not valid JSON." });
     }
 
+    const { manifest, records } = parseEvaluationBundle(bundle);
     const dataset = await getDataset();
     const validated = validateLlmImport({
       manifest,
-      records: parseJsonLines(predictionsText),
+      records,
       dataset,
     });
     importValidated = true;

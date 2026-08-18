@@ -2786,7 +2786,7 @@ button:disabled {
 
 .llm-import form {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 10px;
   padding: 0 13px 13px;

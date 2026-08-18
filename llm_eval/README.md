@@ -132,6 +132,8 @@ rcq-llm-eval --json-mode --output outputs/barney_json_mode.jsonl
 
 ## Tests
 
+After every complete run, the evaluator also writes one portable admin-upload file next to the resumable outputs, for example `outputs/claude_predictions.import.json`. Upload only that bundle in the web admin. The JSONL and manifest remain separate internally so interrupted batches can resume without losing successful requests.
+
 The tests do not contact Barney or Anthropic:
 
 ```bash

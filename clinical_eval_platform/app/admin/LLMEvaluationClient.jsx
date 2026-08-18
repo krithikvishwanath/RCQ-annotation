@@ -25,8 +25,7 @@ function formatDate(value) {
 }
 
 export default function LLMEvaluationClient({ datasetId, evaluation, queries, onImported }) {
-  const [manifest, setManifest] = useState(null);
-  const [predictions, setPredictions] = useState(null);
+  const [bundle, setBundle] = useState(null);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -84,13 +83,12 @@ export default function LLMEvaluationClient({ datasetId, evaluation, queries, on
 
   async function importRun(event) {
     event.preventDefault();
-    if (!manifest || !predictions) {
-      setError("Choose both the run manifest and predictions JSONL files.");
+    if (!bundle) {
+      setError("Choose the evaluation import bundle.");
       return;
     }
     const body = new FormData();
-    body.append("manifest", manifest);
-    body.append("predictions", predictions);
+    body.append("bundle", bundle);
     setImporting(true);
     setMessage("");
     setError("");
@@ -175,7 +173,7 @@ export default function LLMEvaluationClient({ datasetId, evaluation, queries, on
           ) : null}
         </>
       ) : (
-        <div className="llm-empty-state"><strong>No model run is attached to this dataset.</strong><span>Import the privacy-preserving JSONL and its manifest below. Query text is rejected by the server and is never duplicated into the model-results tables.</span></div>
+        <div className="llm-empty-state"><strong>No model run is attached to this dataset.</strong><span>Import the single privacy-preserving evaluation bundle below. Query text is rejected by the server and is never duplicated into the model-results tables.</span></div>
       )}
 
       {message ? <p className="inline-success" role="status">{message}</p> : null}
@@ -184,9 +182,8 @@ export default function LLMEvaluationClient({ datasetId, evaluation, queries, on
       <details className="llm-import" open={!evaluation?.available}>
         <summary>{evaluation?.available ? "Replace imported model run" : "Import model run"}</summary>
         <form onSubmit={importRun}>
-          <label><span>Run manifest (.json)</span><input type="file" accept="application/json,.json" onChange={(event) => setManifest(event.target.files?.[0] || null)} /></label>
-          <label><span>Predictions (.jsonl)</span><input type="file" accept="application/json,.jsonl" onChange={(event) => setPredictions(event.target.files?.[0] || null)} /></label>
-          <button className="button button--primary button--compact" type="submit" disabled={importing || !manifest || !predictions}>{importing ? "Validating and importing…" : "Validate and import"}</button>
+          <label><span>Evaluation bundle (.import.json)</span><input type="file" accept="application/json,.json" onChange={(event) => setBundle(event.target.files?.[0] || null)} /></label>
+          <button className="button button--primary button--compact" type="submit" disabled={importing || !bundle}>{importing ? "Validating and importing…" : "Validate and import"}</button>
         </form>
       </details>
 

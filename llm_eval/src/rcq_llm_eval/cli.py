@@ -333,6 +333,8 @@ async def execute(args: argparse.Namespace) -> int:
         )
         if not pending:
             print("All selected queries already have successful results.")
+            import_path = store.write_import_bundle(manifest)
+            print(f"Admin import bundle:       {import_path}")
             return 0
 
         config = BatchConfig(
@@ -436,6 +438,10 @@ async def execute(args: argparse.Namespace) -> int:
         }
         store.write_manifest(manifest)
 
+        import_path = None
+        if not failures and not aborted:
+            import_path = store.write_import_bundle(manifest)
+
         print(
             f"Run complete: {successes} succeeded, {failures} failed, {aborted} aborted; "
             f"usage={usage.prompt_tokens:,} input + {usage.completion_tokens:,} output "
@@ -443,6 +449,8 @@ async def execute(args: argparse.Namespace) -> int:
             f"({usage.cache_creation_input_tokens:,} cache-write, "
             f"{usage.cache_read_input_tokens:,} cache-read)."
         )
+        if import_path is not None:
+            print(f"Admin import bundle: {import_path}")
         return 1 if failures or aborted else 0
 
 
