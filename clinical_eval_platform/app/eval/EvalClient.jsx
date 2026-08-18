@@ -16,6 +16,7 @@ import {
   optionForShortcut,
   optionShortcut,
 } from "../../lib/keyboard-shortcuts";
+import { createSaveQueue } from "../../lib/save-queue";
 
 const STORAGE = {
   sessionId: "rcqTaxonomy.sessionId",
@@ -24,6 +25,10 @@ const STORAGE = {
   mode: "rcqTaxonomy.mode",
 };
 const ASSIGNMENT_REFRESH_INTERVAL_MS = 30_000;
+// A pending browser record only yields to the server copy when the server copy
+// is clearly newer. The tolerance absorbs ordinary clock skew between the
+// annotator's device and the database.
+const SERVER_NEWER_TOLERANCE_MS = 5 * 60_000;
 
 function storageGet(key) {
   try {
@@ -86,6 +91,20 @@ function localKey(datasetId, sessionId) {
   return `rcqTaxonomy.annotations.${datasetId}.${sessionId}`;
 }
 
+function parseTime(value) {
+  const time = Date.parse(value || "");
+  return Number.isFinite(time) ? time : null;
+}
+
+// True when the server copy was clearly written after the browser copy, e.g.
+// the same annotator finished the query on another device.
+function serverIsClearlyNewer(serverRecord, localRecord) {
+  const serverTime = parseTime(serverRecord?.updatedAt);
+  const localTime = parseTime(localRecord?.updatedAt);
+  if (serverTime == null || localTime == null) return false;
+  return serverTime - localTime > SERVER_NEWER_TOLERANCE_MS;
+}
+
 function authHeaders(session, includeJson = false) {
   return {
     ...(includeJson ? { "Content-Type": "application/json" } : {}),
@@ -98,6 +117,9 @@ async function putAnnotation(session, datasetId, questionId, record) {
   const response = await fetch("/api/annotations", {
     method: "PUT",
     headers: authHeaders(session, true),
+    // keepalive lets a save that is already in flight complete even if the
+    // annotator closes the tab immediately afterwards.
+    keepalive: true,
     body: JSON.stringify({
       sessionId: session.sessionId,
       datasetId,
@@ -140,6 +162,12 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
   const disabled =
     field.type === "derived" ||
     (field.key === "medicine_division" && labels.clinical_domain !== "Medicine");
+  // "Not applicable" is assigned automatically when the department is not
+  // Medicine; offering it while Medicine is selected would only be reset.
+  const selectableOptions =
+    field.key === "medicine_division" && labels.clinical_domain === "Medicine"
+      ? field.options.filter((option) => option.value !== "Not applicable")
+      : field.options;
   const useSelect = field.control === "select" || field.options.length > 12;
   const hasDefinitions = field.options.some((option) => option.description);
   const describedBy = helpOpen ? `${field.key}-help` : undefined;
@@ -217,7 +245,7 @@ function FieldControl({ field, value, labels, onChange, helpOpen, onToggleHelp }
           onChange={(event) => onChange(event.target.value || null)}
         >
           <option value="" disabled>Select one best value…</option>
-          {field.options.map((option) => (
+          {selectableOptions.map((option) => (
             <option key={String(option.value)} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -425,15 +453,18 @@ function CodebookDrawer({ open, onClose, session }) {
 export default function EvalClient() {
   const router = useRouter();
   const mainRef = useRef(null);
-  const saveTimersRef = useRef({});
-  const saveSequenceRef = useRef({});
   const initializedNavigationRef = useRef(false);
   const [session, setSession] = useState(null);
   const [dataset, setDataset] = useState(null);
   const [questionIds, setQuestionIds] = useState(null);
   const [runVersion, setRunVersion] = useState(null);
   const [annotations, setAnnotations] = useState({});
+  // The ref is the synchronous source of truth for annotation records; the
+  // state mirrors it for rendering. Every write goes through commitAnnotations
+  // so back-to-back edits (or an edit landing while a save response is being
+  // applied) always build on the newest record.
   const annotationsRef = useRef({});
+  const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [activeGroup, setActiveGroup] = useState(TAXONOMY_GROUPS[0].id);
   const [openHelp, setOpenHelp] = useState(null);
@@ -441,13 +472,23 @@ export default function EvalClient() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [assignmentError, setAssignmentError] = useState("");
+  const [syncNotice, setSyncNotice] = useState("");
   const [remainingQueries, setRemainingQueries] = useState(0);
   const [hasClaimedInitial, setHasClaimedInitial] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
+  // idle → nothing saved yet · saving → request in flight or debounce pending ·
+  // saved → last save succeeded · retrying → transient failure, retry scheduled ·
+  // error → permanent failure for at least one record
   const [saveStatus, setSaveStatus] = useState("idle");
   const [copyStatus, setCopyStatus] = useState("");
   const shortcutTriggerRef = useRef(null);
   const shortcutReturnFocusRef = useRef(null);
+  const sessionRef = useRef(null);
+  const datasetRef = useRef(null);
+  const persistLocalRef = useRef(() => {});
+  const handleUnauthorizedRef = useRef(() => {});
+  const questionIdsRef = useRef(null);
+  const saveQueueRef = useRef(null);
 
   const endSession = useCallback(() => {
     Object.values(STORAGE).forEach(storageRemove);
@@ -460,8 +501,71 @@ export default function EvalClient() {
   }, [router]);
 
   useEffect(() => {
-    annotationsRef.current = annotations;
-  }, [annotations]);
+    sessionRef.current = session;
+    datasetRef.current = dataset;
+    handleUnauthorizedRef.current = handleUnauthorized;
+    questionIdsRef.current = questionIds;
+  }, [dataset, handleUnauthorized, questionIds, session]);
+
+  const commitAnnotations = useCallback((updater) => {
+    const next = updater(annotationsRef.current);
+    annotationsRef.current = next;
+    setAnnotations(next);
+    return next;
+  }, []);
+
+  if (!saveQueueRef.current) {
+    saveQueueRef.current = createSaveQueue({
+      save: (questionId, snapshot) => {
+        const currentSession = sessionRef.current;
+        const currentDataset = datasetRef.current;
+        if (!currentSession || !currentDataset) {
+          const error = new Error("The workspace is still loading.");
+          error.status = 0;
+          throw error;
+        }
+        return putAnnotation(currentSession, currentDataset.datasetId, questionId, snapshot);
+      },
+      onSaving: () => setSaveStatus("saving"),
+      onSaved: (questionId, { data, isLatest }) => {
+        // Only a response for the newest edit may mark the record clean. A
+        // response for an older snapshot must never overwrite newer labels.
+        if (isLatest) {
+          const next = commitAnnotations((previous) => {
+            const current = previous[questionId];
+            if (!current) return previous;
+            return {
+              ...previous,
+              [questionId]: {
+                ...current,
+                updatedAt: data?.updatedAt || current.updatedAt,
+                pending: false,
+              },
+            };
+          });
+          persistLocalRef.current(next);
+        }
+        setSyncNotice("");
+        setSaveStatus(saveQueueRef.current.inFlightCount() ? "saving" : "saved");
+      },
+      onError: (questionId, error, { retryable }) => {
+        if (error?.status === 401) {
+          handleUnauthorizedRef.current();
+          return;
+        }
+        if (retryable) {
+          setSaveStatus("retrying");
+          return;
+        }
+        setSaveStatus("error");
+        setSyncNotice(
+          error?.status === 403
+            ? "A query is no longer assigned to you; its unsaved changes will be discarded when the assignment list refreshes."
+            : `A change could not be saved: ${error?.message || "unknown error"}`,
+        );
+      },
+    });
+  }
 
   useEffect(() => {
     const sessionId = storageGet(STORAGE.sessionId);
@@ -588,65 +692,38 @@ export default function EvalClient() {
   );
 
   useEffect(() => {
-    if (!Array.isArray(questionIds)) return;
-    const assigned = new Set(questionIds.map(String));
-    for (const [questionId, timer] of Object.entries(saveTimersRef.current)) {
-      if (assigned.has(questionId)) continue;
-      clearTimeout(timer);
-      delete saveTimersRef.current[questionId];
-    }
-    setAnnotations((previous) => {
-      const next = Object.fromEntries(
-        Object.entries(previous).filter(([questionId]) => assigned.has(String(questionId))),
-      );
-      if (Object.keys(next).length !== Object.keys(previous).length) persistLocal(next);
-      return next;
-    });
-  }, [persistLocal, questionIds]);
-
-  const saveOne = useCallback(
-    async (questionId, snapshot) => {
-      if (!session || !dataset) return;
-      if (session.mode === "local") {
-        setSaveStatus("local");
-        return;
-      }
-
-      const sequence = (saveSequenceRef.current[questionId] || 0) + 1;
-      saveSequenceRef.current[questionId] = sequence;
-      setSaveStatus("saving");
-      try {
-        const data = await putAnnotation(session, dataset.datasetId, questionId, snapshot);
-        if (saveSequenceRef.current[questionId] !== sequence) return;
-        setAnnotations((previous) => {
-          const current = normalizeRecord(previous[questionId]);
-          const next = {
-            ...previous,
-            [questionId]: {
-              ...current,
-              labels: applyDerivedRules(data.labels || current.labels),
-              updatedAt: data.updatedAt || current.updatedAt,
-              pending: false,
-            },
-          };
-          persistLocal(next);
-          return next;
-        });
-        setSaveStatus("saved");
-      } catch (error) {
-        if (error?.status === 401) {
-          handleUnauthorized();
-          return;
-        }
-        if (saveSequenceRef.current[questionId] === sequence) setSaveStatus("error");
-      }
-    },
-    [dataset, handleUnauthorized, persistLocal, session],
-  );
+    persistLocalRef.current = persistLocal;
+  }, [persistLocal]);
 
   useEffect(() => {
-    if (!session || !dataset || runVersion == null) return;
+    if (!Array.isArray(questionIds)) return;
+    const assigned = new Set(questionIds.map(String));
+    const queue = saveQueueRef.current;
+    let droppedPending = false;
+    const before = annotationsRef.current;
+    const next = commitAnnotations((previous) => {
+      const kept = {};
+      for (const [questionId, record] of Object.entries(previous)) {
+        if (assigned.has(String(questionId))) {
+          kept[questionId] = record;
+          continue;
+        }
+        queue.cancel(questionId);
+        if (record?.pending) droppedPending = true;
+      }
+      return Object.keys(kept).length === Object.keys(previous).length ? previous : kept;
+    });
+    if (next !== before) persistLocal(next);
+    if (droppedPending) {
+      setSyncNotice("A query was reassigned by the study team; unsaved changes to it were discarded.");
+      setSaveStatus((current) => (current === "error" ? "saved" : current));
+    }
+  }, [commitAnnotations, persistLocal, questionIds]);
+
+  useEffect(() => {
+    if (!session || !dataset || runVersion == null) return undefined;
     let cancelled = false;
+    let retryTimer = null;
     const key = localKey(dataset.datasetId, session.sessionId);
     let localRecords = {};
     try {
@@ -661,22 +738,30 @@ export default function EvalClient() {
     } catch {
       storageRemove(key);
     }
-    setAnnotations(localRecords);
+    commitAnnotations(() => localRecords);
+    setAnnotationsLoaded(false);
 
-    if (session.mode === "local") return undefined;
-    const query = new URLSearchParams({ sessionId: session.sessionId, datasetId: dataset.datasetId });
-    fetch(`/api/annotations?${query}`, { headers: authHeaders(session) })
-      .then(async (response) => {
+    if (session.mode === "local") {
+      setAnnotationsLoaded(true);
+      return undefined;
+    }
+
+    // The workspace stays in its loading state until the server copy has been
+    // merged, so an annotator can never edit a query on top of a stale or empty
+    // record. Failures are retried; nothing is editable until this succeeds.
+    let attempt = 0;
+    const load = async () => {
+      try {
+        const query = new URLSearchParams({ sessionId: session.sessionId, datasetId: dataset.datasetId });
+        const response = await fetch(`/api/annotations?${query}`, { cache: "no-store", headers: authHeaders(session) });
         const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
         if (response.status === 401) {
           handleUnauthorized();
-          return null;
+          return;
         }
         if (!response.ok) throw new Error(data?.error || "Saved annotations could not be loaded.");
-        return data;
-      })
-      .then(async (data) => {
-        if (!data || cancelled) return;
+
         const serverRecords = {};
         for (const row of data.annotations || []) {
           serverRecords[String(row.question_id)] = normalizeRecord({
@@ -688,30 +773,44 @@ export default function EvalClient() {
         }
         const merged = { ...serverRecords };
         for (const [questionId, localRecord] of Object.entries(localRecords)) {
-          if (localRecord.pending) merged[questionId] = localRecord;
-          else if (!merged[questionId]) merged[questionId] = localRecord;
+          const serverRecord = merged[questionId];
+          if (!serverRecord) {
+            merged[questionId] = localRecord;
+          } else if (localRecord.pending && !serverIsClearlyNewer(serverRecord, localRecord)) {
+            // Unsynced browser work wins unless the server copy was clearly
+            // written later (for example on another device).
+            merged[questionId] = localRecord;
+          }
         }
-        if (!cancelled) {
-          setAnnotations(merged);
-          persistLocal(merged);
-        }
+        const assigned = Array.isArray(questionIdsRef.current) ? new Set(questionIdsRef.current.map(String)) : null;
+        const next = commitAnnotations(() => (
+          assigned
+            ? Object.fromEntries(Object.entries(merged).filter(([questionId]) => assigned.has(String(questionId))))
+            : merged
+        ));
+        persistLocal(next);
+        setSyncNotice("");
+        setAnnotationsLoaded(true);
 
-        for (const [questionId, record] of Object.entries(merged)) {
-          if (cancelled || !record.pending) continue;
-          await saveOne(questionId, record);
+        const queue = saveQueueRef.current;
+        for (const [questionId, record] of Object.entries(next)) {
+          if (record.pending) queue.enqueue(questionId, record, { immediate: true });
         }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setSaveStatus("error");
-          setAssignmentError(error?.message || "Saved annotations could not be loaded.");
-        }
-      });
+      } catch (error) {
+        if (cancelled) return;
+        attempt += 1;
+        const delay = Math.min(30_000, 2000 * 2 ** (attempt - 1));
+        setSyncNotice(`${error?.message || "Saved annotations could not be loaded."} Retrying…`);
+        retryTimer = window.setTimeout(load, delay);
+      }
+    };
+    load();
 
     return () => {
       cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [dataset, handleUnauthorized, persistLocal, runVersion, saveOne, session]);
+  }, [commitAnnotations, dataset, handleUnauthorized, persistLocal, runVersion, session]);
 
   const questions = useMemo(() => {
     if (!dataset || !Array.isArray(questionIds)) return [];
@@ -733,13 +832,15 @@ export default function EvalClient() {
   }, [questionIndex, questions.length]);
 
   useEffect(() => {
-    if (initializedNavigationRef.current || !questions.length) return;
+    // Wait for the server copy: on a fresh device the browser cache is empty,
+    // so jumping before the load would always land on the first query.
+    if (initializedNavigationRef.current || !questions.length || !annotationsLoaded) return;
     const firstIncomplete = questions.findIndex(
       (question) => !recordProgress(annotations[String(question.id)]).isComplete,
     );
     setQuestionIndex(firstIncomplete >= 0 ? firstIncomplete : 0);
     initializedNavigationRef.current = true;
-  }, [annotations, questions]);
+  }, [annotations, annotationsLoaded, questions]);
 
   const currentQuestion = questions[questionIndex];
   const currentId = currentQuestion ? String(currentQuestion.id) : "";
@@ -754,32 +855,61 @@ export default function EvalClient() {
     [annotations, questions],
   );
 
-  const scheduleSave = useCallback(
-    (questionId, record) => {
-      clearTimeout(saveTimersRef.current[questionId]);
-      saveTimersRef.current[questionId] = setTimeout(() => {
-        delete saveTimersRef.current[questionId];
-        saveOne(questionId, record);
-      }, 450);
-    },
-    [saveOne],
+  const pendingCount = useMemo(
+    () => questions.filter((question) => annotations[String(question.id)]?.pending).length,
+    [annotations, questions],
   );
+
+  // Warn before the tab closes while any change is still unsynced, and push
+  // pending saves as soon as connectivity or visibility returns.
+  useEffect(() => {
+    if (!pendingCount) return undefined;
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [pendingCount]);
+
+  useEffect(() => {
+    const queue = saveQueueRef.current;
+    const flush = () => queue.flushAll();
+    // hidden → send anything pending now (keepalive keeps it alive);
+    // visible → retry anything that failed while the tab was in the background.
+    const onVisibility = () => queue.flushAll();
+    window.addEventListener("online", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      // Do not dispose: a save scheduled just before leaving the workspace
+      // (for example via End session) should still be sent.
+      queue.flushAll();
+    };
+  }, []);
 
   const updateCurrent = useCallback(
     (updater) => {
       if (!currentId) return;
-      setAnnotations((previous) => {
+      const isLocalMode = session?.mode === "local";
+      const next = commitAnnotations((previous) => {
         const existing = normalizeRecord(previous[currentId]);
         const updated = normalizeRecord(updater(existing));
         updated.updatedAt = new Date().toISOString();
-        updated.pending = session?.mode !== "local";
-        const next = { ...previous, [currentId]: updated };
-        persistLocal(next);
-        scheduleSave(currentId, updated);
-        return next;
+        updated.pending = !isLocalMode;
+        return { ...previous, [currentId]: updated };
       });
+      persistLocal(next);
+      if (isLocalMode) {
+        setSaveStatus("local");
+      } else {
+        saveQueueRef.current.enqueue(currentId, next[currentId]);
+      }
     },
-    [currentId, persistLocal, scheduleSave, session?.mode],
+    [commitAnnotations, currentId, persistLocal, session?.mode],
   );
 
   const updateLabel = useCallback(
@@ -1008,8 +1138,13 @@ export default function EvalClient() {
     return <main className="status-page"><div className="status-card"><p className="eyebrow">Dataset error</p><h1>Annotation cannot start</h1><p>{loadError}</p><button className="button button--secondary" onClick={() => router.push("/")}>Return home</button></div></main>;
   }
 
-  if (!session || !dataset || questionIds === null || runVersion == null) {
-    return <main className="status-page"><div className="loading-mark" aria-label="Loading annotation workspace"><span /><span /><span /></div></main>;
+  if (!session || !dataset || questionIds === null || runVersion == null || !annotationsLoaded) {
+    return (
+      <main className="status-page">
+        <div className="loading-mark" aria-label="Loading annotation workspace"><span /><span /><span /></div>
+        {syncNotice ? <p className="status-note" role="status">{syncNotice}</p> : null}
+      </main>
+    );
   }
 
   if (!questions.length) {
@@ -1031,16 +1166,23 @@ export default function EvalClient() {
   const lastQuestion = questionIndex === questions.length - 1;
   const forwardDisabled = lastGroup && !currentProgress.isComplete;
   const overallPercent = questions.length ? Math.round((completedQueries / questions.length) * 100) : 0;
+  const unsyncedLabel = `${pendingCount} unsynced ${pendingCount === 1 ? "change" : "changes"}`;
   const saveLabel =
     session.mode === "local" || saveStatus === "local"
       ? "Saved on this device"
-      : saveStatus === "saving"
-        ? "Saving…"
-        : saveStatus === "error"
-          ? "Not synced · saved locally"
-          : saveStatus === "saved"
-            ? "All changes saved"
-            : "Autosave ready";
+      : pendingCount === 0
+        ? saveStatus === "idle"
+          ? "Autosave ready"
+          : "All changes saved"
+        : saveStatus === "retrying"
+          ? `${unsyncedLabel} · retrying`
+          : saveStatus === "error"
+            ? `${unsyncedLabel} · saved on this device`
+            : "Saving…";
+  const saveStateClass =
+    pendingCount === 0 && saveStatus !== "idle" && saveStatus !== "local" && session.mode !== "local"
+      ? "saved"
+      : saveStatus;
 
   return (
     <div className="workspace-shell">
@@ -1054,7 +1196,7 @@ export default function EvalClient() {
           <div className="progress-track"><span style={{ width: `${overallPercent}%` }} /></div>
         </div>
         <div className="header-actions">
-          <div className={`save-state save-state--${saveStatus}`}><span />{saveLabel}</div>
+          <div className={`save-state save-state--${saveStateClass}`} role="status"><span />{saveLabel}</div>
           <button
             ref={shortcutTriggerRef}
             className="button button--secondary button--compact shortcut-trigger"
@@ -1070,6 +1212,7 @@ export default function EvalClient() {
 
       {dataset.isExample ? <div className="demo-banner"><strong>Example dataset</strong> · Replace it with the approved de-identified study file before data collection.</div> : null}
       {assignmentError ? <div className="sync-banner" role="status">{assignmentError}</div> : null}
+      {syncNotice ? <div className="sync-banner sync-banner--warning" role="status">{syncNotice}</div> : null}
 
       <div className="workspace-body">
         <aside className="query-rail" aria-label="Assigned queries">

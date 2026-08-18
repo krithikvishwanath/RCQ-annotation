@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CODEBOOK_VERSION, TAXONOMY_KEYS } from "../lib/taxonomy";
 
 const STORAGE = {
   sessionId: "rcqTaxonomy.sessionId",
@@ -110,13 +111,13 @@ export default function HomePage() {
               <span className="brand-mark" aria-hidden="true">NYU</span>
               <div><strong>Clinical Query Taxonomy</strong><span>Clinician annotation study</span></div>
             </div>
-            <span className="codebook-chip">Codebook v1</span>
+            <span className="codebook-chip">Codebook {CODEBOOK_VERSION}</span>
           </div>
 
           <div className="signin-heading">
             <p className="eyebrow">Annotation workspace</p>
             <h1>{existing ? "Welcome back" : "Begin a session"}</h1>
-            <p>{existing ? "Continue exactly where you left off." : "Classify de-identified clinical queries across 25 fields. Use the identifier provided by the study team."}</p>
+            <p>{existing ? "Continue exactly where you left off." : `Classify de-identified clinical queries across ${TAXONOMY_KEYS.length} fields. Use the identifier provided by the study team.`}</p>
           </div>
 
           {existing ? (

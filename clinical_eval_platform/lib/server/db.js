@@ -26,6 +26,9 @@ export function getSql() {
     max: 1,
     idle_timeout: 20,
     connect_timeout: 10,
+    // Schema initialisation uses IF NOT EXISTS everywhere; the resulting
+    // "already exists, skipping" notices are expected and only add log noise.
+    onnotice: () => {},
   });
 
   return _sql;

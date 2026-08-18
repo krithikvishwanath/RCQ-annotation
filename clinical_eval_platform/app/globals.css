@@ -494,6 +494,15 @@ button:disabled {
   background: var(--green);
 }
 
+.save-state--retrying {
+  color: #795021;
+}
+
+.save-state--retrying > span {
+  background: var(--amber);
+  animation: pulse 1s infinite;
+}
+
 .save-state--error {
   color: var(--red);
 }
@@ -569,6 +578,12 @@ button:disabled {
   border-color: #ebc9cc;
   background: var(--red-soft);
   color: var(--red);
+}
+
+.sync-banner--warning {
+  border-color: #efd7b6;
+  background: var(--amber-soft);
+  color: #795021;
 }
 
 .workspace-body {
@@ -1751,8 +1766,18 @@ button:disabled {
   display: grid;
   min-height: 100vh;
   place-items: center;
+  align-content: center;
+  gap: 14px;
   padding: 24px;
   background: var(--canvas);
+}
+
+.status-note {
+  margin: 0;
+  max-width: 420px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .status-card {

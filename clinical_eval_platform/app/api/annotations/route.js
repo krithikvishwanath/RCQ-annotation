@@ -75,46 +75,58 @@ export async function PUT(request) {
       return json(401, { error: "Session not found. Please sign in again." });
     }
 
-    const written = await sql`
-      WITH allowed AS (
-        SELECT 1 AS ok
-        FROM question_review_slots
+    const written = await sql.begin(async (transaction) => {
+      // Same per-query lock as the admin release/move transaction, so a save
+      // cannot slip in between the admin's "has saved work?" check and its
+      // reassignment (which would leave an orphaned annotation that no export
+      // or metric can see). Held only for the duration of this transaction.
+      await transaction`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`${datasetId}:${questionId}`}, 0))
+      `;
+
+      const rows = await transaction`
+        WITH allowed AS (
+          SELECT 1 AS ok
+          FROM question_review_slots
+          WHERE benchmark_id = ${datasetId}
+            AND question_id = ${questionId}
+            AND rater_id = ${sessionId}::uuid
+            AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
+          LIMIT 1
+        )
+        INSERT INTO annotations (
+          rater_id, dataset_id, question_id, codebook_version,
+          labels, notes, is_complete, updated_at
+        )
+        SELECT
+          ${sessionId}::uuid, ${datasetId}, ${questionId}, ${CODEBOOK_VERSION},
+          ${transaction.json(validation.annotation)}, ${notes}, ${progress.isComplete}, now()
+        FROM allowed
+        ON CONFLICT (rater_id, dataset_id, question_id)
+        DO UPDATE SET
+          codebook_version = EXCLUDED.codebook_version,
+          labels = EXCLUDED.labels,
+          notes = EXCLUDED.notes,
+          is_complete = EXCLUDED.is_complete,
+          updated_at = now()
+        RETURNING updated_at
+      `;
+      if (!rows.length) return rows;
+
+      await transaction`
+        UPDATE question_review_slots
+        SET last_activity_at = now(), updated_at = now()
         WHERE benchmark_id = ${datasetId}
           AND question_id = ${questionId}
           AND rater_id = ${sessionId}::uuid
           AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
-        LIMIT 1
-      )
-      INSERT INTO annotations (
-        rater_id, dataset_id, question_id, codebook_version,
-        labels, notes, is_complete, updated_at
-      )
-      SELECT
-        ${sessionId}::uuid, ${datasetId}, ${questionId}, ${CODEBOOK_VERSION},
-        ${sql.json(validation.annotation)}, ${notes}, ${progress.isComplete}, now()
-      FROM allowed
-      ON CONFLICT (rater_id, dataset_id, question_id)
-      DO UPDATE SET
-        codebook_version = EXCLUDED.codebook_version,
-        labels = EXCLUDED.labels,
-        notes = EXCLUDED.notes,
-        is_complete = EXCLUDED.is_complete,
-        updated_at = now()
-      RETURNING updated_at
-    `;
+      `;
+      return rows;
+    });
 
     if (!written.length) {
       return json(403, { error: "This query is not assigned to this annotator." });
     }
-
-    await sql`
-      UPDATE question_review_slots
-      SET last_activity_at = now(), updated_at = now()
-      WHERE benchmark_id = ${datasetId}
-        AND question_id = ${questionId}
-        AND rater_id = ${sessionId}::uuid
-        AND slot < ${REQUIRED_REVIEWS_PER_QUERY}
-    `;
 
     return json(200, {
       ok: true,

@@ -9,7 +9,7 @@ The application lives in `clinical_eval_platform/` and provides:
 - exactly 24 forced-choice taxonomy fields;
 - inline field rules and a searchable codebook;
 - automatic enforcement of all hard consistency rules;
-- debounced server autosave plus browser recovery for interrupted sessions;
+- debounced server autosave with one in-flight save per query, automatic retry with backoff, an unsynced-change indicator, a leave-page warning, and browser recovery for interrupted sessions;
 - live admin coverage and field-level inter-rater reliability monitoring;
 - secure import of privacy-preserving LLM annotations with live human–model concordance;
 - searchable admin query inventory with per-query assignment and completion coverage;
@@ -119,7 +119,7 @@ The evaluator still keeps its JSONL and manifest internally so interrupted batch
 
 The model is never treated as an additional clinician in the IRR calculation. The separate human–LLM panel reports descriptive field agreement between each completed clinician annotation and the fixed model annotation for the same query. Query-level model labels load only when an administrator requests them.
 
-Administrators can release an assignment back to the shared pool or move it to another registered reviewer. Saved annotations are never transferred between reviewer identities: changing an assignment with partial or completed work requires confirmation and permanently deletes that source annotation. Every move or release is recorded in `admin_assignment_events`. Open reviewer workspaces synchronize assignment changes within 30 seconds, while the server rejects saves to removed assignments immediately. Removing all of a reviewer's assignments does not trigger another automatic initial batch; the reviewer must explicitly request the next increment of 10.
+Administrators can release an assignment back to the shared pool or move it to another registered reviewer. Saved annotations are never transferred between reviewer identities: changing an assignment with partial or completed work requires confirmation and permanently deletes that source annotation. Every move or release is recorded in `admin_assignment_events`. Open reviewer workspaces synchronize assignment changes within 30 seconds, while the server rejects saves to removed assignments immediately; saves and assignment changes for the same query are serialized on a per-query database lock, so a save can never slip in between an administrator's check and the reassignment. Removing all of a reviewer's assignments does not trigger another automatic initial batch; the reviewer must explicitly request the next increment of 10.
 
 The admin export includes query text, optional source specialty metadata, all 24 labels in codebook order, completion state, notes, and audit timestamps.
 
