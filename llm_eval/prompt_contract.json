@@ -1,8 +1,8 @@
 {
   "schema_version": "v2.1",
-  "model_prompt_edition": "v2.1-compact.1",
-  "canonical_prompt_sha256": "8f25c94c2d90b597a8f36a21edc7ead6e411a2b44db8c10f6514027b0df9b3ea",
-  "compact_prompt_sha256": "e9e7d032912880df9f1c67e5b493f8ca0f34701ba78dd88a45a690e90ad04f88",
+  "model_prompt_edition": "v2.1-compact.2",
+  "canonical_prompt_sha256": "f8f0fc98778ed0398e76b83c6c843d0088391154045d80602500f9619fcb5394",
+  "compact_prompt_sha256": "1ab35c89472fc51ac3aa49261c3c374992475c4f12ad8a866fcf431ea281518d",
   "required_rules": [
     {
       "id": "literal_input_only",
@@ -42,7 +42,7 @@
     {
       "id": "three_test_tasks",
       "canonical_anchor": "Test knowledge, three ways",
-      "compact_anchor": "Supplied result/report → Test & result interpretation"
+      "compact_anchor": "Supplied result/report \u2192 Test & result interpretation"
     },
     {
       "id": "domain_precedence",
@@ -106,8 +106,58 @@
     },
     {
       "id": "calibration_discharge",
-      "canonical_anchor": "Please write discharge instructions in Spanish for a 4-year-old",
-      "compact_anchor": "Please write discharge instructions in Spanish for a 4-year-old"
+      "canonical_anchor": "Please write discharge instructions in Russian for a 4-year-old",
+      "compact_anchor": "Please write discharge instructions in Russian for a 4-year-old"
+    },
+    {
+      "id": "fragment_reading",
+      "canonical_anchor": "Read a bare noun-phrase query with no verb or question word",
+      "compact_anchor": "Read a bare noun-phrase query with no verb or question word"
+    },
+    {
+      "id": "truncated_query",
+      "canonical_anchor": "contains no recoverable request",
+      "compact_anchor": "contains no recoverable request"
+    },
+    {
+      "id": "hinge_strict",
+      "canonical_anchor": "even when phrased as treating the condition",
+      "compact_anchor": "even when phrased as treating the condition"
+    },
+    {
+      "id": "analyte_not_drug",
+      "canonical_anchor": "lab analytes (troponin, TSH) are not drugs",
+      "compact_anchor": "lab analytes (troponin, TSH) are not drugs"
+    },
+    {
+      "id": "yes_no_verification_scope",
+      "canonical_anchor": "a general fact with no implied action",
+      "compact_anchor": "a general fact with no implied action"
+    },
+    {
+      "id": "clinical_decision_anchor",
+      "canonical_anchor": "condition-level treatment query with no patient anchor",
+      "compact_anchor": "condition-level treatment with no patient"
+    },
+    {
+      "id": "rates_durations_dosing",
+      "canonical_anchor": "over how many hours should IV magnesium run",
+      "compact_anchor": "over how many hours should IV magnesium run"
+    },
+    {
+      "id": "evidence_dependent_memory",
+      "canonical_anchor": "knows them from memory",
+      "compact_anchor": "knows them from memory"
+    },
+    {
+      "id": "route_ctx_priority",
+      "canonical_anchor": "Clarification outranks Retrieval",
+      "compact_anchor": "Clarification outranks Retrieval"
+    },
+    {
+      "id": "ama_none_reserve",
+      "canonical_anchor": "Reserve it for queries matching no listed use case at all",
+      "compact_anchor": "Reserve it for queries matching no listed use case"
     }
   ]
 }

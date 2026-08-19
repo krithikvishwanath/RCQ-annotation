@@ -1,4 +1,4 @@
-Clinician Query Annotation Codebook (v2.1) — compact model edition v2.1-compact.1
+Clinician Query Annotation Codebook (v2.1) — compact model edition v2.1-compact.2
 This is a semantic compression of the canonical human-rater codebook, not a different taxonomy. Apply every rule below to each free-text query submitted by a clinician to a hospital AI assistant.
 
 Input
@@ -11,6 +11,8 @@ Global rules
 - Judge fields independently unless a hard consistency rule says otherwise. A query may be answerable yet require Retrieval; may name a drug without having a drug-information primary task; and may state a dose without being high risk.
 - Use only the query text. Do not infer unstated facts, cues, submitter competence, or hidden intent. When a rule requires a textual cue, its absence means the negative value even if the cue seems probable.
 - Surface flags (mentions_medication through requests_text_generation) are literal properties of the text and independent of judgement fields.
+- Read a bare noun-phrase query with no verb or question word as an implicit “what is / tell me about X” and code the knowledge task it implies (“acute interstitial nephritis” → Foundational knowledge, Definition/concept). Test & result interpretation requires the text to present a particular patient's finding (report language, a value with units, or case context). Never impute a drafting request from topic words alone: a fragment naming a document type without an imperative (“pediatric asthma action plan”) takes its underlying clinical task, not Documentation & workflow.
+- If the query is cut off or contains no recoverable request (a pasted HPI with no question), code task_category Other, question_intent Other, answerability Low, route Clarification; do not guess the elided ask.
 
 Hard consistency rules
 1. needs_context = 1 iff any of ctx_patient, ctx_institutional, or ctx_evidence = 1.
@@ -34,7 +36,7 @@ Classify the one deliverable that would satisfy the request, not merely its subj
 Task boundaries
 - A true artifact intended for the record, a patient, or another person is Documentation & workflow. A list, table, mnemonic, or stepwise answer for the asker's own use is only a format: classify its underlying task. Thus stepwise dialysis-catheter instructions are Procedural guidance; a mnemonic for admission orders is Foundational knowledge. requests_text_generation remains independently literal and can be 1 in either case.
 - Drafting a true artifact beats its topic: discharge instructions are Documentation & workflow. Patient education & communication requires an explicit patient/family audience without drafting. “In plain language” without such an audience keeps the underlying knowledge task. Academic/research artifacts are Other.
-- Agent choice, dose, duration, or route for a condition is Drug information & pharmacotherapy, including “treatment for S. epidermidis UTI” and “days for cellulitis.” Non-drug decisions, whether to treat, disposition, care setting, or overall management are Treatment & management.
+- Agent choice, dose, duration, or route for a condition — or whether two drugs can be used together — is Drug information & pharmacotherapy even when phrased as treating the condition (“treatment for a Klebsiella UTI,” “days of antibiotics for strep pharyngitis”). Non-drug decisions, whether to treat, disposition, care setting, or overall management are Treatment & management. Hormones, metabolites, and lab analytes (troponin, TSH) are not drugs; an adverse effect of a named drug is Drug information & pharmacotherapy; general pharmacology concepts naming no specific medication (“what is first-pass metabolism”) are Foundational knowledge.
 - Establishing a diagnosis, including choosing tests, is Diagnosis & differential; managing a stated/known condition is Treatment & management.
 - Supplied result/report → Test & result interpretation. Which test to use → Diagnosis & differential. What a test measures or its expected behavior in a condition without a supplied result → Foundational knowledge, as are signs/symptoms/features of a condition.
 - “Medical decision making/MDM” as the E/M documentation concept → Coding & administrative. Software/EHR how-to → Documentation & workflow, never Procedural guidance.
@@ -73,8 +75,8 @@ Assign the department that ordinarily owns management of the query's clinical pr
 
 Clinical-domain rules
 - Documentation/coding takes the domain of its clinical subject when one exists (ICD-10 for retinal vein occlusion → Ophthalmology; pre-procedure-fasting note → Anesthesiology, Perioperative Care, and Pain Medicine). Use Other only without a clinical subject.
-- Medication questions take the owner of the treated condition: metoprolol for AF → Medicine; tamsulosin for BPH → Urology; nifedipine for preterm labor → Obstetrics and Gynecology; rocuronium → Anesthesiology, Perioperative Care, and Pain Medicine; psychotropics → Psychiatry/Child and Adolescent Psychiatry by age rule.
-- If indication is unstated but one clinical use clearly dominates, use that owner's domain (supratherapeutic Lamictal redosing → Neurology). If multiple common indications span services or Medicine divisions and none is stated, do not infer one: assign Medicine → General Internal Medicine and Clinical Innovation. Biochemistry and Molecular Pharmacology is never this fallback. Independently set ctx_patient = 1 only if the answer materially depends on missing indication/patient facts. The organ affected by a side effect never sets domain (Breztri causing urinary retention → Medicine, not Urology).
+- Medication questions take the owner of the treated condition: diltiazem for AF → Medicine; oxybutynin for overactive bladder → Urology; nifedipine for preterm labor → Obstetrics and Gynecology; rocuronium → Anesthesiology, Perioperative Care, and Pain Medicine; psychotropics → Psychiatry/Child and Adolescent Psychiatry by age rule.
+- If indication is unstated but one clinical use clearly dominates, use that owner's domain (adjusting supratherapeutic phenytoin → Neurology). If multiple common indications span services or Medicine divisions and none is stated, do not infer one: assign Medicine → General Internal Medicine and Clinical Innovation. Biochemistry and Molecular Pharmacology is never this fallback. Independently set ctx_patient = 1 only if the answer materially depends on missing indication/patient facts. The organ affected by a side effect never sets domain (Breztri causing urinary retention → Medicine, not Urology).
 - Population-based steps require the query itself to state a patient, age, or pediatric/pregnancy framing; do not infer from disease demographics (Ewing-sarcoma recurrence without a patient → Medicine).
 - If operative and medical questions coexist, use the first ladder step that applies.
 
@@ -97,19 +99,19 @@ Clinical-domain rules
 
 3. question_intent — what the asker wants from the answer
 Intent is distinct from task.
-- Verification: essentially yes/no confirmation of something believed/planned/heard; requires an explicit cue (“confirm,” “is it true,” “am I right,” or permissibility such as “can you give X with Y?”). If asking for the correct value/choice itself, classify that content instead.
+- Verification: essentially yes/no confirmation of something believed/planned/heard; requires an explicit cue (“confirm,” “is it true,” “am I right,” or permissibility such as “can you give X with Y?”). If asking for the correct value/choice itself, classify that content instead. A yes/no on the permissibility or adequacy of a contemplated action (“can I give ibuprofen with warfarin?”) is Verification; a yes/no about a general fact with no implied action (“can adults get RSV?”) is classified by the content sought.
 - Fact/property lookup: a discrete fact/attribute (half-life, cutoff, market status). What a drug is used for/why it is needed is an indication attribute.
-- Clinical decision: recommendation/choice for a real or planned clinical action (“should I,” “what would you do,” “which for this patient”).
+- Clinical decision: recommendation/choice for a real or planned clinical action (“should I,” “what would you do,” “which for this patient”). Requires a particular anchored situation; condition-level treatment with no patient (“management of otitis media”) is Fact/property lookup.
 - Documentation drafting: wants artifact text, almost always requests_text_generation = 1.
-- Definition/concept: meaning/content/classification/criteria of a term (“what is X?”); an attribute of X is Fact/property lookup.
-- Dosing/conversion: dose, adjustment, dilution, rate, or unit conversion, including standard-dose lookup.
+- Definition/concept: meaning/content/classification/criteria of a term (“what is X?”), even when X is an abbreviation or patient context surrounds it; an attribute of X is Fact/property lookup.
+- Dosing/conversion: dose, adjustment, dilution, rate, or unit conversion, including standard-dose lookup and administration rates/infusion durations (“over how many hours should IV magnesium run?”).
 - Procedure/how-to: steps for a clinical or software task.
 - Comparison: general differences among options, not a patient-specific choice.
 - Mechanism/rationale: why/how something works or why a practice is recommended; what a drug is for is Fact/property lookup.
 - Coding: obtain/verify billing, diagnosis, or procedure codes/rules.
 - Result interpretation: meaning of a supplied result/finding.
 - Other: no listed intent fits; use sparingly.
-Tie-breaks: explicit confirmation makes Verification outrank everything; otherwise any dose answer is Dosing/conversion over Fact/property lookup; patient-anchored choice is Clinical decision, general contrast is Comparison.
+Tie-breaks: explicit confirmation makes Verification outrank everything; otherwise any dose answer is Dosing/conversion over Fact/property lookup and Procedure/how-to; patient-anchored choice is Clinical decision, general contrast is Comparison. A supplied result plus a yes/no confirmation (“does this echo mean tamponade?”) is Verification, not Result interpretation.
 
 4. ama_category — AMA physician AI use-case
 Classify the primary deliverable. Drafting wins when it embeds another function.
@@ -120,14 +122,14 @@ Classify the primary deliverable. Drafting wins when it embeds another function.
 - Generation of draft responses to patient portal messages: draft a reply to a patient-initiated portal message, email, or text.
 - Translation services: convert supplied content between human languages; lay rewording without language change is not translation.
 - Assistive diagnosis: case-anchored identification of diagnosis from patient findings—differential, most likely diagnosis, or interpreting supplied findings toward diagnosis.
-- None of the above: no listed use case, including EHR/software how-to, scheduling/noncoding administration, pure unit conversion, procedural technique, or patient explanation without a drafted artifact.
-AMA boundaries: write discharge instructions in Spanish → Creation of discharge instructions...; translate existing instructions → Translation services. E&M level → Documentation of billing codes...; summarize an admission for sign-out → Generation of chart summaries. Patient management/referral → Summaries... because AMA has no treatment bucket; reserve Assistive diagnosis for diagnosis. Patient-facing educational handout/tip sheet → Creation...; explain to a patient without drafting → None of the above.
+- None of the above: no listed use case, including EHR/software how-to, scheduling/noncoding administration, pure unit conversion, procedural technique, or patient explanation without a drafted artifact. Reserve it for queries matching no listed use case; treatment/management/drug questions answered from standards of care belong in Summaries of medical research and standards of care.
+AMA boundaries: write discharge instructions in Russian → Creation of discharge instructions...; translate existing instructions into another language → Translation services. E&M level → Documentation of billing codes...; summarize an admission for sign-out → Generation of chart summaries. Patient management/referral → Summaries... because AMA has no treatment bucket; reserve Assistive diagnosis for diagnosis. Patient-facing educational handout/tip sheet → Creation...; explain to a patient without drafting → None of the above.
 
 5. patient_specific — 1 for one real individual case: personal clinical details, “my patient,” stated individual age/sex/findings, or pasted chart material. 0 for general questions, population classes (“patients with CKD”), or explicitly hypothetical vignettes (“suppose a patient”).
 
 6. actionable — 1 if the answer could directly alter near-term action or documentation: order, prescription, plan, communication, note, code, or verification of a planned action. 0 for purely educational/background or exam-style knowledge.
 
-7. evidence_dependent — 1 when safe correctness materially rests on published studies, guidelines, drug references, or standards, so misremembering could be materially wrong. 0 for pure logic/arithmetic, formatting/drafting mechanics, stable definition, or institutional rules alone.
+7. evidence_dependent — 1 when safe correctness materially rests on published studies, guidelines, drug references, or standards, so misremembering could be materially wrong. 0 for pure logic/arithmetic, formatting/drafting mechanics, stable definition, or institutional rules alone. Judge where the answer lives, not whether one would look it up: drug properties, antimicrobial spectra, device parameters, and guideline thresholds are 1 even when a competent clinician knows them from memory (consulting sources is ctx_evidence).
 
 8–11. context
 - ctx_patient: 1 when safe answering requires absent patient-level facts such as history, medications, allergies, labs, weight, renal function, or indication. A patient-specific query already containing what is needed is 0.
@@ -147,7 +149,7 @@ AMA boundaries: write discharge instructions in Spanish → Creation of discharg
 - Partial: useful answer possible only with material gaps, assumptions, or explicit conditions.
 - Low: cannot meaningfully/safely answer as posed because too vague, dependent on unavailable information, or unsafe.
 
-14. route — choose the first safe option in order Direct < Retrieval < Clarification < Escalation < Abstention.
+14. route — choose the first safe option in order Direct < Retrieval < Clarification < Escalation < Abstention. With multiple ctx_ flags, Clarification outranks Retrieval: ctx_patient = 1 alongside ctx_evidence or ctx_institutional routes to Clarification; Retrieval requires a fully specified question where sourcing is the sole barrier.
 - Direct: general-knowledge answer; no context flag and risk tolerable unaided.
 - Retrieval: answer grounded in authoritative current/institutional sources; typical for ctx_evidence or ctx_institutional when otherwise well posed.
 - Clarification: missing details the asker can supply are the main barrier; typical for ctx_patient or ambiguity.
@@ -157,7 +159,7 @@ AMA boundaries: write discharge instructions in Spanish → Creation of discharg
 15–21. literal surface flags — absent textual cue means 0
 - mentions_medication: 1 for a named generic/brand drug, biologic, vaccine, or administered biological/blood product (pRBCs, albumin). Drug class alone (“statins,” “antibiotics,” “beta-blocker”) is 0.
 - mentions_dose: 1 for numeric dose, strength, concentration, or rate (5 mg, 1 g q8h, 0.9%, 10 mL/h). Frequency or route alone (BID, PO) is 0.
-- mentions_lab_or_result: 1 for a numeric/qualitative laboratory or test result (K 5.8, positive cultures, elevated troponin). Merely naming a test to ask whether/how to order it is 0; bedside vital signs alone (HR, BP, RR, temperature, SpO2) are 0.
+- mentions_lab_or_result: 1 for a numeric/qualitative laboratory or test result (K 5.8, MRSA on the swab, elevated troponin). Merely naming a test to ask whether/how to order it is 0; bedside vital signs alone (HR, BP, RR, temperature, SpO2) are 0.
 - mentions_imaging: 1 for any imaging study/report (X-ray, CT, MRI, ultrasound, echo, nuclear), including whether to order it. Deliberate asymmetry: labs count only as results; imaging counts on any reference.
 - vulnerable_population: 1 only when text identifies neonate/child under 18, pregnancy/lactation, age ≥65 or elderly/geriatric/frail, or comparably vulnerable group such as severe cognitive impairment.
 - acute_or_urgent: 1 only for a current/imminent time-critical situation (“actively seizing,” “in ED now,” “BP 70/40”). General knowledge about acute disease (“first-line for anaphylaxis?”) is 0.
@@ -182,6 +184,6 @@ Question:  68M with AF, CrCl 28 (Cr 2.1), weight 60 kg — he's written for apix
 Why: AF owner is Medicine/Cardiology; supplied age/weight/creatinine make ctx_patient 0; safety-critical dose verification makes ctx_evidence and needs_context 1, route Retrieval, risk Critical; age ≥65 is vulnerable.
 
 Example 2
-Question:  Please write discharge instructions in Spanish for a 4-year-old going home after viral gastroenteritis — include return precautions.
+Question:  Please write discharge instructions in Russian for a 4-year-old going home after viral gastroenteritis — include warning signs that should prompt a return visit.
 {"task_category":"Documentation & workflow","clinical_domain":"Pediatrics","medicine_division":"Not applicable","question_intent":"Documentation drafting","ama_category":"Creation of discharge instructions, care plans or progress notes","patient_specific":1,"actionable":1,"evidence_dependent":1,"ctx_patient":0,"ctx_institutional":0,"ctx_evidence":0,"needs_context":0,"risk":"Moderate","answerability":"High","route":"Direct","mentions_medication":0,"mentions_dose":0,"mentions_lab_or_result":0,"mentions_imaging":0,"vulnerable_population":1,"acute_or_urgent":0,"requests_text_generation":1,"query_form":"Command","uses_abbreviation":0}
-Why: artifact drafting beats education/translation; stated child routes to Pediatrics; stable return precautions are evidence-dependent without current retrieval; no context flag means Direct; plausible delay is Moderate risk.
+Why: artifact drafting beats education/translation; stated child routes to Pediatrics; stable warning-sign content is evidence-dependent without current retrieval; no context flag means Direct; plausible delay is Moderate risk.
